@@ -1,0 +1,3 @@
+[submodule "external/FindWDK"]
+	path = external/FindWDK
+	url = https://github.com/SergiusTheBest/FindWDK.git
