@@ -1,43 +1,36 @@
 #include <ntddk.h>
-#include "logging.h"
-#include "nt_ext.h"
+#include "logging.hpp"
+#include "nt_ext.hpp"
 
-_Function_class_(KDEFERRED_ROUTINE)
-
-void NTAPI test_function(struct _KDPC* /*Dpc*/,
-                         PVOID param,
-                         const PVOID arg1,
-                         const PVOID arg2)
-{
-	const auto core_id = KeGetCurrentProcessorNumberEx(nullptr);
-	DbgLog("%s from CPU %u\n", static_cast<const char*>(param), core_id);
-
-	KeSignalCallDpcSynchronize(arg2);
-	KeSignalCallDpcDone(arg1);
-}
-
+#include "thread.hpp"
 
 _Function_class_(DRIVER_UNLOAD)
+
 void unload(PDRIVER_OBJECT /*DriverObject*/)
 {
-	DbgLog("Leaving World\n");
-	KeGenericCallDpc(test_function, "Bye");
-	DbgLog("Bye World\n");
+	debug_log("Leaving World\n");
 }
 
-extern "C" {
-
-NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRING /*RegistryPath*/)
+extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRING /*RegistryPath*/)
 {
 	DriverObject->DriverUnload = unload;
 
-	DbgLog("Hello World\n");
+	debug_log("Hello World\n");
 
-	KeGenericCallDpc(test_function, "Hello");
+	volatile long i = 0;
 
-	DbgLog("Nice World\n");
+	thread::dispatch_on_all_cores([&i]()
+	{
+		const auto index = thread::get_processor_index();
+		while (i != index)
+		{
+		}
+
+		debug_log("Hello from CPU %u/%u\n", thread::get_processor_index() + 1, thread::get_processor_count());
+		++i;
+	});
+
+	debug_log("Final i = %i\n", i);
 
 	return STATUS_SUCCESS;
-}
-
 }
