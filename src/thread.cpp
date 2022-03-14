@@ -1,6 +1,5 @@
 #include "thread.hpp"
-#include <ntddk.h>
-#include "nt_ext.hpp"
+#include "std_include.hpp"
 
 namespace thread
 {

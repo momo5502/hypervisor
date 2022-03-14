@@ -1,6 +1,7 @@
 wdk_add_driver(driver
     main.cpp
     thread.cpp
+    new.cpp
 )
 
 cmake_path(NATIVE_PATH PROJECT_SOURCE_DIR NORMALIZE WINDOWS_PROJECT_DIR)

@@ -1,6 +1,5 @@
-#include <ntddk.h>
+#include "std_include.hpp"
 #include "logging.hpp"
-#include "nt_ext.hpp"
 
 #include "thread.hpp"
 
@@ -14,7 +13,6 @@ void unload(PDRIVER_OBJECT /*DriverObject*/)
 extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRING /*RegistryPath*/)
 {
 	DriverObject->DriverUnload = unload;
-
 	debug_log("Hello World\n");
 
 	volatile long i = 0;
