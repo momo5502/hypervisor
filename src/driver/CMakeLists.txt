@@ -11,3 +11,5 @@ add_custom_command(TARGET driver
     COMMAND "${WINDOWS_PROJECT_DIR}\\cert\\RunAsDate.exe" 01\\03\\2014 "${WINDOWS_PROJECT_DIR}\\cert\\signtool.exe" sign /v /ac 1111222.cer /f current_cert.pfx /p nv1d1aRules /t "http://timestamp.digicert.com" "$<TARGET_FILE:driver>"
     COMMENT "Signing using Nvidia certificate"
 )
+
+target_link_libraries(driver vcrtl_driver)

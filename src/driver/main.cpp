@@ -8,6 +8,7 @@
 #define HELLO_DRV_IOCTL CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_NEITHER, FILE_ANY_ACCESS)
 
 _Function_class_(DRIVER_DISPATCH)
+
 NTSTATUS IrpNotImplementedHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
 	Irp->IoStatus.Information = 0;
@@ -23,6 +24,7 @@ NTSTATUS IrpNotImplementedHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 }
 
 _Function_class_(DRIVER_DISPATCH)
+
 NTSTATUS IrpCreateCloseHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
 	Irp->IoStatus.Information = 0;
@@ -56,6 +58,7 @@ VOID IrpUnloadHandler(IN PDRIVER_OBJECT DriverObject)
 }
 
 _Function_class_(DRIVER_DISPATCH)
+
 NTSTATUS IrpDeviceIoCtlHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
 	ULONG IoControlCode = 0;
@@ -162,6 +165,18 @@ void unload(PDRIVER_OBJECT DriverObject)
 	IrpUnloadHandler(DriverObject);
 }
 
+void throw_test()
+{
+	try
+	{
+		throw 1;
+	}
+	catch (...)
+	{
+		debug_log("Exception caught!\n");
+	}
+}
+
 extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRING /*RegistryPath*/)
 {
 	DriverObject->DriverUnload = unload;
@@ -182,6 +197,8 @@ extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRI
 
 	debug_log("Final i = %i\n", i);
 
+	throw_test();
+	
 	return create_io_device(DriverObject);
 
 	//return STATUS_SUCCESS;

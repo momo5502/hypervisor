@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-set(CMAKE_DISABLE_SOURCE_CHANGES ON)
+#set(CMAKE_DISABLE_SOURCE_CHANGES ON)
 set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
 
 project(secret LANGUAGES C CXX)
@@ -23,5 +23,6 @@ enable_driver_support()
 
 ##########################################
 
+add_subdirectory_and_get_targets("external" EXTERNAL_TARGETS)
 add_subdirectory_and_get_targets("src" SRC_TARGETS)
 targets_set_warnings_as_errors(${SRC_TARGETS})

@@ -33,6 +33,7 @@ endmacro()
 macro(enable_driver_support)
   list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/external/FindWDK/cmake")
   find_package(WDK REQUIRED)
+  list(REMOVE_ITEM WDK_COMPILE_FLAGS /kernel)
 endmacro()
 
 ##########################################
