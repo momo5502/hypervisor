@@ -7,6 +7,7 @@
 
 #define HELLO_DRV_IOCTL CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_NEITHER, FILE_ANY_ACCESS)
 
+_Function_class_(DRIVER_DISPATCH)
 NTSTATUS IrpNotImplementedHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
 	Irp->IoStatus.Information = 0;
@@ -21,6 +22,7 @@ NTSTATUS IrpNotImplementedHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 	return STATUS_NOT_SUPPORTED;
 }
 
+_Function_class_(DRIVER_DISPATCH)
 NTSTATUS IrpCreateCloseHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
 	Irp->IoStatus.Information = 0;
@@ -35,6 +37,7 @@ NTSTATUS IrpCreateCloseHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 	return STATUS_SUCCESS;
 }
 
+_Function_class_(DRIVER_DISPATCH)
 VOID IrpUnloadHandler(IN PDRIVER_OBJECT DriverObject)
 {
 	UNICODE_STRING DosDeviceName = {0};
@@ -52,6 +55,7 @@ VOID IrpUnloadHandler(IN PDRIVER_OBJECT DriverObject)
 	debug_log("[!] Hello Driver Unloaded\n");
 }
 
+_Function_class_(DRIVER_DISPATCH)
 NTSTATUS IrpDeviceIoCtlHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
 	ULONG IoControlCode = 0;
@@ -137,9 +141,6 @@ NTSTATUS create_io_device(const PDRIVER_OBJECT DriverObject)
 	DriverObject->MajorFunction[IRP_MJ_CLOSE] = IrpCreateCloseHandler;
 	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = IrpDeviceIoCtlHandler;
 
-	// Assign the driver Unload routine
-	DriverObject->DriverUnload = IrpUnloadHandler;
-
 	// Set the flags
 	DeviceObject->Flags |= DO_DIRECT_IO;
 	DeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
@@ -155,9 +156,10 @@ NTSTATUS create_io_device(const PDRIVER_OBJECT DriverObject)
 
 _Function_class_(DRIVER_UNLOAD)
 
-void unload(PDRIVER_OBJECT /*DriverObject*/)
+void unload(PDRIVER_OBJECT DriverObject)
 {
 	debug_log("Leaving World\n");
+	IrpUnloadHandler(DriverObject);
 }
 
 extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRING /*RegistryPath*/)
@@ -180,7 +182,7 @@ extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRI
 
 	debug_log("Final i = %i\n", i);
 
-	create_io_device(DriverObject);
+	return create_io_device(DriverObject);
 
-	return STATUS_SUCCESS;
+	//return STATUS_SUCCESS;
 }
