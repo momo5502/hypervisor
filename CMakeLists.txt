@@ -23,4 +23,5 @@ enable_driver_support()
 
 ##########################################
 
-add_subdirectory(src)
+add_subdirectory_and_get_targets("src" SRC_TARGETS)
+targets_set_warnings_as_errors(${SRC_TARGETS})

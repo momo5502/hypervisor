@@ -18,7 +18,7 @@ std::filesystem::path get_current_path()
 	return selfdir;
 }
 
-int main(const int argc, char* argv[])
+int main(const int /*argc*/, char* /*argv*/[])
 {
 	const auto manager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
 	if (manager == nullptr)
