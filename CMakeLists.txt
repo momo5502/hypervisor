@@ -1,10 +1,26 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(secret)
+set(CMAKE_DISABLE_SOURCE_CHANGES ON)
+set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
+
+project(secret LANGUAGES C CXX)
+
+##########################################
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/external/FindWDK/cmake")
-find_package(WDK REQUIRED)
+##########################################
+
+include(cmake/utils.cmake)
+
+##########################################
+
+set_new_artifact_directory()
+enable_driver_support()
+
+##########################################
 
 add_subdirectory(src)

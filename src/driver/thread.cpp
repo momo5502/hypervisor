@@ -39,7 +39,7 @@ namespace thread
 
 	bool sleep(const uint32_t milliseconds)
 	{
-		LARGE_INTEGER interval;
+		LARGE_INTEGER interval{};
 		interval.QuadPart = -(10000ll * milliseconds);
 
 		return STATUS_SUCCESS == KeDelayExecutionThread(KernelMode, FALSE, &interval);
