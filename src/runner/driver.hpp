@@ -1,3 +1,4 @@
+#pragma once
 #include "service_handle.hpp"
 
 class driver

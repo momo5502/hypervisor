@@ -1,3 +1,5 @@
+#pragma once
+
 class native_handle
 {
 public:

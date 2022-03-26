@@ -30,9 +30,9 @@ bool driver_device::send(const DWORD ioctl_code, const data& input, data& output
 	const auto success = DeviceIoControl(this->device_,
 	                                     ioctl_code,
 	                                     const_cast<uint8_t*>(input.data()),
-	                                     input.size(),
+	                                     static_cast<DWORD>(input.size()),
 	                                     output.data(),
-	                                     output.size(),
+	                                     static_cast<DWORD>(output.size()),
 	                                     &size_returned,
 	                                     nullptr
 	) != FALSE;

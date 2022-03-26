@@ -4,3 +4,4 @@
 [submodule "external/vcrtl"]
 	path = external/vcrtl
 	url = https://github.com/avakar/vcrtl.git
+	ignore = dirty

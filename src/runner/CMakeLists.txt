@@ -1,9 +1,9 @@
+file(GLOB runner_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+file(GLOB runner_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
+
 add_executable(runner
-	main.cpp
-	driver.cpp
-	service_handle.cpp
-	native_handle.cpp
-	driver_device.cpp
+	${runner_sources}
+	${runner_headers}
 )
 
 target_precompile_headers(runner

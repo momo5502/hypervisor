@@ -258,10 +258,18 @@ void throw_test()
 	}
 }
 
+extern "C" void __cdecl __std_terminate()
+{
+	KeBugCheckEx(DRIVER_VIOLATION, 14, 0, 0, 0);
+}
+
+
 extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRING /*RegistryPath*/)
 {
 	DriverObject->DriverUnload = unload;
 	debug_log("Hello World\n");
+
+	delete(new int);
 
 	volatile long i = 0;
 

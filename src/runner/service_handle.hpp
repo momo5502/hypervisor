@@ -1,3 +1,5 @@
+#pragma once
+
 class service_handle
 {
 public:

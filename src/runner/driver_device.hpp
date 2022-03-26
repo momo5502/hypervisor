@@ -1,3 +1,4 @@
+#pragma once
 #include "native_handle.hpp"
 
 class driver_device

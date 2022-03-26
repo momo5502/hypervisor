@@ -1,7 +1,14 @@
+string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
+
+file(GLOB driver_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+file(GLOB driver_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
+
 wdk_add_driver(driver
-    driver_main.cpp
-    thread.cpp
-    new.cpp
+    ${driver_sources}
+    ${driver_header}
+)
+target_precompile_headers(driver
+	PRIVATE std_include.hpp
 )
 
 cmake_path(NATIVE_PATH PROJECT_SOURCE_DIR NORMALIZE WINDOWS_PROJECT_DIR)
