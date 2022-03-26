@@ -1,6 +1,7 @@
 #include "std_include.hpp"
 #include "logging.hpp"
 #include "thread.hpp"
+#include "sleep_callback.hpp"
 
 #define DOS_DEV_NAME L"\\DosDevices\\HelloDev"
 #define DEV_NAME L"\\Device\\HelloDev"
@@ -157,85 +158,7 @@ NTSTATUS create_io_device(const PDRIVER_OBJECT DriverObject)
 	return Status;
 }
 
-_Function_class_(CALLBACK_FUNCTION)
-VOID
-PowerCallback(
-	_In_opt_ PVOID CallbackContext,
-	_In_opt_ PVOID Argument1,
-	_In_opt_ PVOID Argument2
-)
-{
-	UNREFERENCED_PARAMETER(CallbackContext);
-
-	//
-	// Ignore non-Sx changes
-	//
-	if (Argument1 != (PVOID)PO_CB_SYSTEM_STATE_LOCK)
-	{
-		return;
-	}
-
-	//
-	// Check if this is S0->Sx, or Sx->S0
-	//
-	if (ARGUMENT_PRESENT(Argument2))
-	{
-		//
-		// Reload the hypervisor
-		//
-		debug_log("Waking up!\n");
-	}
-	else
-	{
-		//
-		// Unload the hypervisor
-		//
-		debug_log("Going to sleep!\n");
-	}
-}
-
-PVOID g_PowerCallbackRegistration{nullptr};
-
-NTSTATUS register_sleep_callback()
-{
-	PCALLBACK_OBJECT callbackObject;
-	UNICODE_STRING callbackName =
-		RTL_CONSTANT_STRING(L"\\Callback\\PowerState");
-	OBJECT_ATTRIBUTES objectAttributes =
-		RTL_CONSTANT_OBJECT_ATTRIBUTES(&callbackName,
-		                               OBJ_CASE_INSENSITIVE |
-		                               OBJ_KERNEL_HANDLE);
-
-	auto status = ExCreateCallback(&callbackObject, &objectAttributes, FALSE, TRUE);
-	if (!NT_SUCCESS(status))
-	{
-		return status;
-	}
-
-	//
-	// Now register our routine with this callback
-	//
-	g_PowerCallbackRegistration = ExRegisterCallback(callbackObject,
-	                                                 PowerCallback,
-	                                                 NULL);
-
-	//
-	// Dereference it in both cases -- either it's registered, so that is now
-	// taking a reference, and we'll unregister later, or it failed to register
-	// so we failing now, and it's gone.
-	//
-	ObDereferenceObject(callbackObject);
-
-	//
-	// Fail if we couldn't register the power callback
-	//
-	if (g_PowerCallbackRegistration == NULL)
-	{
-		return STATUS_INSUFFICIENT_RESOURCES;
-	}
-
-	return STATUS_SUCCESS;
-}
+sleep_callback* sleep_cb{nullptr};
 
 _Function_class_(DRIVER_UNLOAD)
 
@@ -243,7 +166,7 @@ void unload(PDRIVER_OBJECT DriverObject)
 {
 	debug_log("Leaving World\n");
 	IrpUnloadHandler(DriverObject);
-	ExUnregisterCallback(g_PowerCallbackRegistration);
+	delete sleep_cb;
 }
 
 void throw_test()
@@ -287,7 +210,29 @@ extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRI
 	debug_log("Final i = %i\n", i);
 
 	throw_test();
-	register_sleep_callback();
+
+	try
+	{
+		sleep_cb = new sleep_callback([](const sleep_callback::type type)
+		{ 
+			if (type == sleep_callback::type::sleep)
+			{
+				debug_log("Going to sleep!");
+			}
+
+			if (type == sleep_callback::type::wakeup)
+			{
+				debug_log("Waking up!");
+			}
+		});
+
+		sleep_cb->dispatcher(sleep_callback::type::sleep);
+		sleep_cb->dispatcher(sleep_callback::type::wakeup);
+	}
+	catch (...)
+	{
+		debug_log("Failed to register sleep callback");
+	}
 
 	return create_io_device(DriverObject);
 

@@ -34,6 +34,8 @@ namespace std
 		std::unique_ptr<fn_interface> fn{};
 
 	public:
+		function() = default;
+
 		template <typename T>
 		function(T&& t)
 			: fn(new fn_implementation<T>(std::forward<T>(t)))
@@ -49,7 +51,12 @@ namespace std
 
 		Result operator()(Args ... args) const
 		{
-			return (*fn)(std::forward<Args>(args)...);
+			return (*this->fn)(std::forward<Args>(args)...);
+		}
+
+		operator bool() const
+		{
+			return this->fn;
 		}
 	};
 }

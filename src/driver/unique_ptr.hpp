@@ -6,6 +6,7 @@ namespace std
 	template <typename T>
 	class unique_ptr
 	{
+	public:
 		unique_ptr() = default;
 
 		unique_ptr(T* pointer)
@@ -61,6 +62,11 @@ namespace std
 		const T& operator*() const
 		{
 			return *this->pointer_;
+		}
+
+		operator bool() const
+		{
+			return this->pointer_;
 		}
 
 	private:
