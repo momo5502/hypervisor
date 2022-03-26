@@ -1,5 +1,5 @@
 wdk_add_driver(driver
-    main.cpp
+    driver_main.cpp
     thread.cpp
     new.cpp
 )
