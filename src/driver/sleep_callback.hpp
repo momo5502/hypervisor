@@ -20,13 +20,12 @@ public:
 
 	sleep_callback(const sleep_callback& obj) = delete;
 	sleep_callback& operator=(const sleep_callback& obj) = delete;
-	void dispatcher(type type) const;
 
 private:
 	void* handle_{nullptr};
 	callback_function callback_{};
 
-	
+	void dispatcher(type type) const;
 
 	_Function_class_(CALLBACK_FUNCTION)
 	static void static_callback(void* context, void* argument1, void* argument2);

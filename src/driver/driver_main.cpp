@@ -225,9 +225,6 @@ extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT DriverObject, PUNICODE_STRI
 				debug_log("Waking up!");
 			}
 		});
-
-		sleep_cb->dispatcher(sleep_callback::type::sleep);
-		sleep_cb->dispatcher(sleep_callback::type::wakeup);
 	}
 	catch (...)
 	{

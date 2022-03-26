@@ -53,7 +53,6 @@ void sleep_callback::dispatcher(const type type) const
 }
 
 _Function_class_(CALLBACK_FUNCTION)
-
 void sleep_callback::static_callback(void* context, void* argument1, void* argument2)
 {
 	if (!context || argument1 != reinterpret_cast<PVOID>(PO_CB_SYSTEM_STATE_LOCK))
@@ -62,7 +61,7 @@ void sleep_callback::static_callback(void* context, void* argument1, void* argum
 	}
 
 	auto type = type::sleep;
-	if(ARGUMENT_PRESENT(argument2))
+	if (ARGUMENT_PRESENT(argument2))
 	{
 		type = type::wakeup;
 	}
