@@ -3,6 +3,7 @@
 #include "sleep_callback.hpp"
 #include "irp.hpp"
 #include "exception.hpp"
+#include "hypervisor.hpp"
 
 #define DOS_DEV_NAME L"\\DosDevices\\HelloDev"
 #define DEV_NAME L"\\Device\\HelloDev"
@@ -38,17 +39,20 @@ public:
 private:
 	sleep_callback sleep_callback_{};
 	irp irp_{};
+	hypervisor hypervisor_{};
 
 	void sleep_notification(const sleep_callback::type type)
 	{
 		if (type == sleep_callback::type::sleep)
 		{
 			debug_log("Going to sleep!");
+			this->hypervisor_.on_sleep();
 		}
 
 		if (type == sleep_callback::type::wakeup)
 		{
 			debug_log("Waking up!");
+			this->hypervisor_.on_wakeup();
 		}
 	}
 };
