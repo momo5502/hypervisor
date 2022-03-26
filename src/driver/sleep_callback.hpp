@@ -12,6 +12,7 @@ public:
 
 	using callback_function = std::function<void(type)>;
 
+	sleep_callback() = default;
 	sleep_callback(callback_function&& callback);
 	~sleep_callback();
 

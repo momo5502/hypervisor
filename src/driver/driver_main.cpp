@@ -3,50 +3,79 @@
 #include "sleep_callback.hpp"
 #include "irp.hpp"
 #include "exception.hpp"
-#include "finally.hpp"
 
-sleep_callback* sleep_cb{nullptr};
+#define DOS_DEV_NAME L"\\DosDevices\\HelloDev"
+#define DEV_NAME L"\\Device\\HelloDev"
 
-void sleep_notification(const sleep_callback::type type)
+class global_driver
 {
-	if (type == sleep_callback::type::sleep)
+public:
+	global_driver(const PDRIVER_OBJECT driver_object)
+		: sleep_callback_([this](const sleep_callback::type type)
+		  {
+			  this->sleep_notification(type);
+		  })
+		  , irp_(driver_object, DEV_NAME, DOS_DEV_NAME)
 	{
-		debug_log("Going to sleep!");
+		debug_log("Driver started\n");
 	}
 
-	if (type == sleep_callback::type::wakeup)
+	~global_driver()
 	{
-		debug_log("Waking up!");
+		debug_log("Unloading driver\n");
 	}
-}
+
+	global_driver(global_driver&&) noexcept = delete;
+	global_driver& operator=(global_driver&&) noexcept = delete;
+
+	global_driver(const global_driver&) = delete;
+	global_driver& operator=(const global_driver&) = delete;
+
+	void pre_destroy(const PDRIVER_OBJECT /*driver_object*/)
+	{
+	}
+
+private:
+	sleep_callback sleep_callback_{};
+	irp irp_{};
+
+	void sleep_notification(const sleep_callback::type type)
+	{
+		if (type == sleep_callback::type::sleep)
+		{
+			debug_log("Going to sleep!");
+		}
+
+		if (type == sleep_callback::type::wakeup)
+		{
+			debug_log("Waking up!");
+		}
+	}
+};
+
+global_driver* global_driver_instance{nullptr};
 
 extern "C" void __cdecl __std_terminate()
 {
 	KeBugCheckEx(DRIVER_VIOLATION, 14, 0, 0, 0);
 }
 
-void destroy_sleep_callback()
-{
-	delete sleep_cb;
-}
-
 _Function_class_(DRIVER_UNLOAD) void unload(const PDRIVER_OBJECT driver_object)
 {
-	irp::uninitialize(driver_object);
-	destroy_sleep_callback();
+	if (global_driver_instance)
+	{
+		global_driver_instance->pre_destroy(driver_object);
+		delete global_driver_instance;
+	}
 }
 
 extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT driver_object, PUNICODE_STRING /*registry_path*/)
 {
 	driver_object->DriverUnload = unload;
 
-	auto sleep_destructor = utils::finally(&destroy_sleep_callback);
-
 	try
 	{
-		sleep_cb = new sleep_callback(sleep_notification);
-		irp::initialize(driver_object);
-		sleep_destructor.cancel();
+		global_driver_instance = new global_driver(driver_object);
 	}
 	catch (std::exception& e)
 	{
