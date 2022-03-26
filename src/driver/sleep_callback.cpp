@@ -37,7 +37,6 @@ sleep_callback::~sleep_callback()
 	}
 }
 
-
 void sleep_callback::dispatcher(const type type) const
 {
 	try

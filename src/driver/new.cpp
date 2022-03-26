@@ -1,6 +1,5 @@
 #include "std_include.hpp"
 #include "new.hpp"
-#include "logging.hpp"
 
 void* __cdecl operator new(const size_t size, const POOL_TYPE pool, const unsigned long tag)
 {
