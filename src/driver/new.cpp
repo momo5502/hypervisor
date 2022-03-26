@@ -1,14 +1,29 @@
 #include "std_include.hpp"
 #include "new.hpp"
+#include "exception.hpp"
+
+namespace
+{
+	void* perform_allocation(const size_t size, const POOL_TYPE pool, const unsigned long tag)
+	{
+		auto* memory = ExAllocatePoolWithTag(pool, size, tag);
+		if (!memory)
+		{
+			throw std::runtime_error("Memory allocation failed");
+		}
+
+		return memory;
+	}
+}
 
 void* __cdecl operator new(const size_t size, const POOL_TYPE pool, const unsigned long tag)
 {
-	return ExAllocatePoolWithTag(pool, size, tag);
+	return perform_allocation(size, pool, tag);
 }
 
 void* __cdecl operator new[](const size_t size, const POOL_TYPE pool, const unsigned long tag)
 {
-	return ExAllocatePoolWithTag(pool, size, tag);
+	return perform_allocation(size, pool, tag);
 }
 
 void* __cdecl operator new(const size_t size)
@@ -45,4 +60,9 @@ void __cdecl operator delete[](void* ptr, size_t)
 void __cdecl operator delete[](void* ptr)
 {
 	ExFreePool(ptr);
+}
+
+extern "C" void __cdecl __std_terminate()
+{
+	KeBugCheckEx(DRIVER_VIOLATION, 14, 0, 0, 0);
 }

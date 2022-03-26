@@ -55,10 +55,10 @@ namespace
 			switch (ioctr_code)
 			{
 			case HELLO_DRV_IOCTL:
-				debug_log("[< HelloDriver >] Hello from the Driver!\n");
+				debug_log("Hello from the Driver!\n");
 				break;
 			default:
-				debug_log("[-] Invalid IOCTL Code: 0x%X\n", ioctr_code);
+				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
 				irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
 				break;
 			}

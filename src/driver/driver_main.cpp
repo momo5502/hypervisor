@@ -55,26 +55,31 @@ private:
 
 global_driver* global_driver_instance{nullptr};
 
-extern "C" void __cdecl __std_terminate()
-{
-	KeBugCheckEx(DRIVER_VIOLATION, 14, 0, 0, 0);
-}
-
 _Function_class_(DRIVER_UNLOAD) void unload(const PDRIVER_OBJECT driver_object)
 {
-	if (global_driver_instance)
+	try
 	{
-		global_driver_instance->pre_destroy(driver_object);
-		delete global_driver_instance;
+		if (global_driver_instance)
+		{
+			global_driver_instance->pre_destroy(driver_object);
+			delete global_driver_instance;
+		}
+	}
+	catch (std::exception& e)
+	{
+		debug_log("Destruction error occured: %s\n", e.what());
+	}
+	catch (...)
+	{
+		debug_log("Unknown destruction error occured. This should not happen!");
 	}
 }
 
 extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT driver_object, PUNICODE_STRING /*registry_path*/)
 {
-	driver_object->DriverUnload = unload;
-
 	try
 	{
+		driver_object->DriverUnload = unload;
 		global_driver_instance = new global_driver(driver_object);
 	}
 	catch (std::exception& e)
