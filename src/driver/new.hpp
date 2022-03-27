@@ -1,7 +1,5 @@
 #pragma once
 
-void* operator new(size_t size, POOL_TYPE pool, unsigned long tag = 'momo');
-void* operator new[](size_t size, POOL_TYPE pool, unsigned long tag = 'momo');
 void* operator new(size_t size);
 void* operator new[](size_t size);
 

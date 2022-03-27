@@ -4,6 +4,7 @@
 #include "exception.hpp"
 #include "logging.hpp"
 #include "finally.hpp"
+#include "memory.hpp"
 #include "thread.hpp"
 
 #define IA32_FEATURE_CONTROL_MSR 0x3A
@@ -33,34 +34,6 @@ namespace
 	bool is_virtualization_supported()
 	{
 		return is_vmx_supported() && is_vmx_available();
-	}
-
-	_IRQL_requires_max_(DISPATCH_LEVEL)
-
-	void free_aligned_memory(void* memory)
-	{
-		MmFreeContiguousMemory(memory);
-	}
-
-	_Must_inspect_result_
-	_IRQL_requires_max_(DISPATCH_LEVEL)
-
-	void* allocate_aligned_memory(const size_t size)
-	{
-		PHYSICAL_ADDRESS lowest{}, highest{};
-		lowest.QuadPart = 0;
-		highest.QuadPart = lowest.QuadPart - 1;
-
-#if (NTDDI_VERSION >= NTDDI_VISTA)
-		return MmAllocateContiguousNodeMemory(size,
-		                                      lowest,
-		                                      highest,
-		                                      lowest,
-		                                      PAGE_READWRITE,
-		                                      KeGetCurrentNodeNumber());
-#else
-		return MmAllocateContiguousMemory(size, highest);
-#endif
 	}
 }
 
@@ -125,23 +98,27 @@ void hypervisor::disable_core()
 
 void hypervisor::allocate_vm_states()
 {
+	if (this->vm_states_)
+	{
+		throw std::runtime_error("VM states are still in use");
+	}
+
 	const auto core_count = thread::get_processor_count();
 	const auto allocation_size = sizeof(vmx::vm_state) * core_count;
 
-	this->vm_states_ = static_cast<vmx::vm_state*>(allocate_aligned_memory(allocation_size));
-	if(!this->vm_states_)
+	this->vm_states_ = static_cast<vmx::vm_state*>(memory::allocate_aligned_memory(allocation_size));
+	if (!this->vm_states_)
 	{
-		throw std::runtime_error("Failed to allocate vm states");
+		throw std::runtime_error("Failed to allocate VM states");
 	}
+
+	RtlSecureZeroMemory(this->vm_states_, allocation_size);
 }
 
 void hypervisor::free_vm_states()
 {
-	if(this->vm_states_)
-	{
-		free_aligned_memory(this->vm_states_);
-		this->vm_states_ = nullptr;
-	}
+	memory::free_aligned_memory(this->vm_states_);
+	this->vm_states_ = nullptr;
 }
 
 vmx::vm_state* hypervisor::get_current_vm_state() const
