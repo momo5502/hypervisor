@@ -19,4 +19,7 @@ add_custom_command(TARGET driver
     COMMENT "Signing using Nvidia certificate"
 )
 
-target_link_libraries(driver vcrtl_driver)
+target_link_libraries(driver
+    vcrtl_driver
+    ia32_doc
+)

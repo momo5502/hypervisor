@@ -7,9 +7,7 @@
 #include "memory.hpp"
 #include "thread.hpp"
 
-#define IA32_FEATURE_CONTROL_MSR 0x3A
-#define IA32_FEATURE_CONTROL_MSR_LOCK 0x0001
-#define IA32_FEATURE_CONTROL_MSR_ENABLE_VMXON_OUTSIDE_SMX 0x0004
+#include <ia32.hpp>
 
 namespace
 {
@@ -17,18 +15,16 @@ namespace
 
 	bool is_vmx_supported()
 	{
-		int32_t cpuid_data[4] = {0};
-		__cpuid(cpuid_data, 1);
-		return cpuid_data[2] & 0x20;
+		cpuid_eax_01 data{};
+		__cpuid(reinterpret_cast<int*>(&data), CPUID_VERSION_INFORMATION);
+		return data.cpuid_feature_information_ecx.virtual_machine_extensions;
 	}
 
 	bool is_vmx_available()
 	{
-		const auto feature_control = __readmsr(IA32_FEATURE_CONTROL_MSR);
-		const auto is_locked = (feature_control & IA32_FEATURE_CONTROL_MSR_LOCK) != 0;
-		const auto is_enabled_outside_smx = (feature_control & IA32_FEATURE_CONTROL_MSR_ENABLE_VMXON_OUTSIDE_SMX) != 0;
-
-		return is_locked && is_enabled_outside_smx;
+		ia32_feature_control_register feature_control{};
+		feature_control.flags = __readmsr(IA32_FEATURE_CONTROL);
+		return feature_control.lock_bit && feature_control.enable_vmx_outside_smx;
 	}
 
 	bool is_virtualization_supported()
@@ -38,14 +34,14 @@ namespace
 
 	bool is_hypervisor_present()
 	{
-		int32_t cpuid_data[4] = {0};
-		__cpuid(cpuid_data, 1);
-
-		if ((cpuid_data[2] & 0x80000000) == 0)
+		cpuid_eax_01 data{};
+		__cpuid(reinterpret_cast<int*>(&data), CPUID_VERSION_INFORMATION);
+		if ((data.cpuid_feature_information_ecx.flags & 0x80000000) == 0)
 		{
 			return false;
 		}
 
+		int32_t cpuid_data[4] = {0};
 		__cpuid(cpuid_data, 0x40000001);
 		return cpuid_data[0] == 'momo';
 	}
@@ -105,7 +101,7 @@ void hypervisor::enable()
 	if (!success)
 	{
 		this->disable();
-		throw std::runtime_error("Hypervisor initialization failed");
+		//throw std::runtime_error("Hypervisor initialization failed");
 	}
 }
 
