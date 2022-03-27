@@ -1,8 +1,6 @@
 #include "std_include.hpp"
 #include "hypervisor.hpp"
 
-#include <cassert>
-
 #include "exception.hpp"
 #include "logging.hpp"
 #include "finally.hpp"
@@ -149,7 +147,5 @@ void hypervisor::free_vm_states()
 vmx::vm_state* hypervisor::get_current_vm_state() const
 {
 	const auto current_core = thread::get_processor_index();
-
-	assert(this->vm_states_);
 	return &this->vm_states_[current_core];
 }
