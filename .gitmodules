@@ -5,3 +5,6 @@
 	path = external/vcrtl
 	url = https://github.com/avakar/vcrtl.git
 	ignore = dirty
+[submodule "external/ia32-doc"]
+	path = external/ia32-doc
+	url = https://github.com/wbenny/ia32-doc.git

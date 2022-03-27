@@ -17,7 +17,7 @@ namespace
 
 	bool is_vmx_supported()
 	{
-		int cpuid_data[4] = {0};
+		int32_t cpuid_data[4] = {0};
 		__cpuid(cpuid_data, 1);
 		return cpuid_data[2] & 0x20;
 	}
@@ -35,6 +35,20 @@ namespace
 	{
 		return is_vmx_supported() && is_vmx_available();
 	}
+
+	bool is_hypervisor_present()
+	{
+		int32_t cpuid_data[4] = {0};
+		__cpuid(cpuid_data, 1);
+
+		if ((cpuid_data[2] & 0x80000000) == 0)
+		{
+			return false;
+		}
+
+		__cpuid(cpuid_data, 0x40000001);
+		return cpuid_data[0] == 'momo';
+	}
 }
 
 hypervisor::hypervisor()
@@ -44,10 +58,12 @@ hypervisor::hypervisor()
 		throw std::runtime_error("Hypervisor already instantiated");
 	}
 
-	auto destructor = utils::finally([]()
+	auto destructor = utils::finally([this]()
 	{
+		this->free_vm_states();
 		instance = nullptr;
 	});
+
 	instance = this;
 
 	if (!is_virtualization_supported())
@@ -56,6 +72,7 @@ hypervisor::hypervisor()
 	}
 
 	debug_log("VMX supported!\n");
+	this->allocate_vm_states();
 	this->enable();
 	destructor.cancel();
 }
@@ -63,6 +80,7 @@ hypervisor::hypervisor()
 hypervisor::~hypervisor()
 {
 	this->disable();
+	this->free_vm_states();
 	instance = nullptr;
 }
 
@@ -72,14 +90,10 @@ void hypervisor::disable()
 	{
 		this->disable_core();
 	});
-
-	this->free_vm_states();
 }
 
 void hypervisor::enable()
 {
-	this->allocate_vm_states();
-
 	const auto cr3 = __readcr3();
 
 	bool success = true;
@@ -91,6 +105,7 @@ void hypervisor::enable()
 	if (!success)
 	{
 		this->disable();
+		throw std::runtime_error("Hypervisor initialization failed");
 	}
 }
 
@@ -115,11 +130,20 @@ bool hypervisor::try_enable_core(const uint64_t cr3)
 void hypervisor::enable_core(uint64_t /*cr3*/)
 {
 	auto* vm_state = this->get_current_vm_state();
-	throw std::runtime_error("Not implemented!");
+
+	if (!is_hypervisor_present())
+	{
+		throw std::runtime_error("Hypervisor is not present");
+	}
 }
 
 void hypervisor::disable_core()
 {
+	if (!is_hypervisor_present())
+	{
+		return;
+	}
+
 	auto* vm_state = this->get_current_vm_state();
 }
 
