@@ -31,6 +31,21 @@ KeSignalCallDpcSynchronize(
 	_In_ PVOID SystemArgument2
 );
 
+#if (NTDDI_VERSION < NTDDI_WIN8)
+_Must_inspect_result_
+_IRQL_requires_max_(DISPATCH_LEVEL)
+NTKERNELAPI
+_When_ (return != NULL, _Post_writable_byte_size_ (NumberOfBytes)) PVOID
+MmAllocateContiguousNodeMemory (
+    _In_ SIZE_T NumberOfBytes,
+    _In_ PHYSICAL_ADDRESS LowestAcceptableAddress,
+    _In_ PHYSICAL_ADDRESS HighestAcceptableAddress,
+    _In_opt_ PHYSICAL_ADDRESS BoundaryAddressMultiple,
+    _In_ ULONG Protect,
+    _In_ NODE_REQUIREMENT PreferredNode
+    );
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -80,15 +80,42 @@ void hypervisor::enable()
 {
 	this->allocate_vm_states();
 
-	thread::dispatch_on_all_cores([this]()
+	const auto cr3 = __readcr3();
+
+	bool success = true;
+	thread::dispatch_on_all_cores([&]()
 	{
-		this->enable_core();
+		success &= this->try_enable_core(cr3);
 	});
+
+	if (!success)
+	{
+		this->disable();
+	}
 }
 
-void hypervisor::enable_core()
+bool hypervisor::try_enable_core(const uint64_t cr3)
+{
+	try
+	{
+		this->enable_core(cr3);
+		return true;
+	}
+	catch (std::exception& e)
+	{
+		debug_log("Failed to enable hypervisor on core %d: %s\n", thread::get_processor_index(), e.what());
+		return false;
+	}catch (...)
+	{
+		debug_log("Failed to enable hypervisor on core %d.\n", thread::get_processor_index());
+		return false;
+	}
+}
+
+void hypervisor::enable_core(uint64_t /*cr3*/)
 {
 	auto* vm_state = this->get_current_vm_state();
+	throw std::runtime_error("Not implemented!");
 }
 
 void hypervisor::disable_core()

@@ -2,18 +2,12 @@
 #include "finally.hpp"
 #include "logging.hpp"
 #include "exception.hpp"
+#include "string.hpp"
 
 #define HELLO_DRV_IOCTL CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_NEITHER, FILE_ANY_ACCESS)
 
 namespace
 {
-	UNICODE_STRING get_unicode_string(const wchar_t* string)
-	{
-		UNICODE_STRING unicode_string{};
-		RtlInitUnicodeString(&unicode_string, string);
-		return unicode_string;
-	}
-
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS not_supported_handler(PDEVICE_OBJECT /*device_object*/, const PIRP irp)
 	{
 		PAGED_CODE()
@@ -74,8 +68,8 @@ irp::irp(const PDRIVER_OBJECT driver_object, const wchar_t* device_name, const w
 {
 	PAGED_CODE()
 
-	this->device_name_ = get_unicode_string(device_name);
-	this->dos_device_name_ = get_unicode_string(dos_device_name);
+	this->device_name_ = string::get_unicode_string(device_name);
+	this->dos_device_name_ = string::get_unicode_string(dos_device_name);
 
 	auto destructor = utils::finally([this]()
 	{
