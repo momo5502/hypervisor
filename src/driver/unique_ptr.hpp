@@ -18,7 +18,7 @@ namespace std
 		{
 			if (this->pointer_)
 			{
-				delete this->pointer_;
+				delete_pointer();
 				this->pointer_ = nullptr;
 			}
 		}
@@ -70,6 +70,19 @@ namespace std
 		}
 
 	private:
+		static constexpr auto is_array_type = is_array<T>::value;
 		T* pointer_{nullptr};
+
+		void delete_pointer()
+		{
+			if(is_array_type)
+			{
+				delete[] this->pointer_;
+			}
+			else
+			{
+				delete this->pointer_;
+			}
+		}
 	};
 }

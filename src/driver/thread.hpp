@@ -1,22 +1,29 @@
 #pragma once
 
-using uint32_t = int;
-
 namespace thread
 {
 	uint32_t get_processor_count();
 	uint32_t get_processor_index();
 
+	_IRQL_requires_min_(PASSIVE_LEVEL)
+	_IRQL_requires_max_(APC_LEVEL)
 	bool sleep(uint32_t milliseconds);
 
-	void dispatch_on_all_cores(void(*callback)(void*), void* data);
+	_IRQL_requires_max_(APC_LEVEL)
+	_IRQL_requires_min_(PASSIVE_LEVEL)
+	_IRQL_requires_same_
+	void dispatch_on_all_cores(void (*callback)(void*), void* data);
 
-	template<typename F>
+	_IRQL_requires_max_(APC_LEVEL)
+	_IRQL_requires_min_(PASSIVE_LEVEL)
+	_IRQL_requires_same_
+
+	template <typename F>
 	void dispatch_on_all_cores(F&& callback)
 	{
 		dispatch_on_all_cores([](void* data)
 		{
-			(*reinterpret_cast<F*>(data))();
+			(*static_cast<F*>(data))();
 		}, &callback);
 	}
 }

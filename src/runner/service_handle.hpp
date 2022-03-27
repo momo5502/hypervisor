@@ -6,7 +6,7 @@ public:
 	service_handle();
 	service_handle(SC_HANDLE handle);
 	~service_handle();
-	
+
 	service_handle(const service_handle&) = delete;
 	service_handle& operator=(const service_handle&) = delete;
 

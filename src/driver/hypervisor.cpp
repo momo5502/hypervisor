@@ -2,6 +2,8 @@
 #include "hypervisor.hpp"
 #include "exception.hpp"
 #include "logging.hpp"
+#include "finally.hpp"
+#include "thread.hpp"
 
 #define IA32_FEATURE_CONTROL_MSR 0x3A
 #define IA32_FEATURE_CONTROL_MSR_LOCK 0x0001
@@ -9,6 +11,8 @@
 
 namespace
 {
+	hypervisor* instance{nullptr};
+
 	bool is_vmx_supported()
 	{
 		int cpuid_data[4] = {0};
@@ -33,22 +37,53 @@ namespace
 
 hypervisor::hypervisor()
 {
-	if(!is_virtualization_supported())
+	if (instance != nullptr)
+	{
+		throw std::runtime_error("Hypervisor already instantiated");
+	}
+
+	auto destructor = utils::finally([]()
+	{
+		instance = nullptr;
+	});
+	instance = this;
+
+	if (!is_virtualization_supported())
 	{
 		throw std::runtime_error("VMX not supported on this machine");
 	}
 
 	debug_log("VMX supported!\n");
+	this->enable();
+	destructor.cancel();
 }
 
 hypervisor::~hypervisor()
 {
+	this->disable();
+	instance = nullptr;
 }
 
-void hypervisor::on_sleep()
+void hypervisor::disable()
+{
+	thread::dispatch_on_all_cores([this]()
+	{
+		this->disable_core();
+	});
+}
+
+void hypervisor::enable()
+{
+	thread::dispatch_on_all_cores([this]()
+	{
+		this->enable_core();
+	});
+}
+
+void hypervisor::enable_core()
 {
 }
 
-void hypervisor::on_wakeup()
+void hypervisor::disable_core()
 {
 }

@@ -46,13 +46,13 @@ private:
 		if (type == sleep_callback::type::sleep)
 		{
 			debug_log("Going to sleep!");
-			this->hypervisor_.on_sleep();
+			this->hypervisor_.disable();
 		}
 
 		if (type == sleep_callback::type::wakeup)
 		{
 			debug_log("Waking up!");
-			this->hypervisor_.on_wakeup();
+			this->hypervisor_.enable();
 		}
 	}
 };

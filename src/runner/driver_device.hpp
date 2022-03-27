@@ -6,7 +6,7 @@ class driver_device
 public:
 	driver_device(const std::string& driver_device);
 	~driver_device() = default;
-	
+
 	driver_device(const driver_device&) = delete;
 	driver_device& operator=(const driver_device&) = delete;
 

@@ -1,5 +1,4 @@
 #pragma once
-#include "type_traits.hpp"
 
 namespace std
 {
@@ -19,7 +18,6 @@ namespace std
 		runtime_error(const char* message)
 			: message_(message)
 		{
-			
 		}
 
 		runtime_error(const runtime_error& obj) noexcept = default;
@@ -27,11 +25,12 @@ namespace std
 
 		runtime_error(runtime_error&& obj) noexcept = default;
 		runtime_error& operator=(runtime_error&& obj) noexcept = default;
-		
+
 		const char* what() const noexcept override
 		{
 			return message_;
 		}
+
 	private:
 		const char* message_{};
 	};

@@ -25,20 +25,20 @@ namespace std
 
 			Result operator()(Args ... a) const override
 			{
-				f_(std::forward<Args>(a)...);
+				return f_(std::forward<Args>(a)...);
 			}
 
 			F f_;
 		};
 
-		std::unique_ptr<fn_interface> fn{};
+		std::unique_ptr<fn_interface> fn_{};
 
 	public:
 		function() = default;
 
 		template <typename T>
 		function(T&& t)
-			: fn(new fn_implementation<T>(std::forward<T>(t)))
+			: fn_(new fn_implementation<T>(std::forward<T>(t)))
 		{
 		}
 
@@ -51,12 +51,12 @@ namespace std
 
 		Result operator()(Args ... args) const
 		{
-			return (*this->fn)(std::forward<Args>(args)...);
+			return (*this->fn_)(std::forward<Args>(args)...);
 		}
 
 		operator bool() const
 		{
-			return this->fn;
+			return this->fn_;
 		}
 	};
 }

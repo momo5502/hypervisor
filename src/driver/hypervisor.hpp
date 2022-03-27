@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vmx.hpp"
+
 class hypervisor
 {
 public:
@@ -12,8 +14,10 @@ public:
 	hypervisor(const hypervisor& obj) = delete;
 	hypervisor& operator=(const hypervisor& obj) = delete;
 
-	void on_sleep();
-	void on_wakeup();
+	void enable();
+	void disable();
 
 private:
+	void enable_core();
+	void disable_core();
 };

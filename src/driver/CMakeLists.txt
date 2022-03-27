@@ -5,7 +5,7 @@ file(GLOB driver_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
 
 wdk_add_driver(driver
     ${driver_sources}
-    ${driver_header}
+    ${driver_headers}
 )
 target_precompile_headers(driver
 	PRIVATE std_include.hpp

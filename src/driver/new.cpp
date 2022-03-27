@@ -16,53 +16,53 @@ namespace
 	}
 }
 
-void* __cdecl operator new(const size_t size, const POOL_TYPE pool, const unsigned long tag)
+void* operator new(const size_t size, const POOL_TYPE pool, const unsigned long tag)
 {
 	return perform_allocation(size, pool, tag);
 }
 
-void* __cdecl operator new[](const size_t size, const POOL_TYPE pool, const unsigned long tag)
+void* operator new[](const size_t size, const POOL_TYPE pool, const unsigned long tag)
 {
 	return perform_allocation(size, pool, tag);
 }
 
-void* __cdecl operator new(const size_t size)
+void* operator new(const size_t size)
 {
 	return operator new(size, NonPagedPool);
 }
 
-void* __cdecl operator new[](const size_t size)
+void* operator new[](const size_t size)
 {
 	return operator new[](size, NonPagedPool);
 }
 
 //	Placement new
-inline void* operator new(size_t, void* where)
+void* operator new(size_t, void* where)
 {
 	return where;
 }
 
-void __cdecl operator delete(void* ptr, size_t)
+void operator delete(void* ptr, size_t)
 {
 	ExFreePool(ptr);
 }
 
-void __cdecl operator delete(void* ptr)
+void operator delete(void* ptr)
 {
 	ExFreePool(ptr);
 }
 
-void __cdecl operator delete[](void* ptr, size_t)
+void operator delete[](void* ptr, size_t)
 {
 	ExFreePool(ptr);
 }
 
-void __cdecl operator delete[](void* ptr)
+void operator delete[](void* ptr)
 {
 	ExFreePool(ptr);
 }
 
-extern "C" void __cdecl __std_terminate()
+extern "C" void __std_terminate()
 {
 	KeBugCheckEx(DRIVER_VIOLATION, 14, 0, 0, 0);
 }
