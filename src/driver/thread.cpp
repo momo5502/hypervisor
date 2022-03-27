@@ -1,5 +1,7 @@
 #include "thread.hpp"
 #include "std_include.hpp"
+#include "logging.hpp"
+#include "exception.hpp"
 
 namespace thread
 {
@@ -19,8 +21,19 @@ namespace thread
 		                               const PVOID arg1,
 		                               const PVOID arg2)
 		{
-			auto* const data = static_cast<dispatch_data*>(param);
-			data->callback(data->data);
+			try
+			{
+				const auto* const data = static_cast<dispatch_data*>(param);
+				data->callback(data->data);
+			}
+			catch (std::exception& e)
+			{
+				debug_log("Exception during dpc on core %d: %s\n", get_processor_index(), e.what());
+			}
+			catch (...)
+			{
+				debug_log("Unknown exception during dpc on core %d\n", get_processor_index());
+			}
 
 			KeSignalCallDpcSynchronize(arg2);
 			KeSignalCallDpcDone(arg1);

@@ -1,5 +1,8 @@
 #include "std_include.hpp"
 #include "hypervisor.hpp"
+
+#include <cassert>
+
 #include "exception.hpp"
 #include "logging.hpp"
 #include "finally.hpp"
@@ -32,6 +35,34 @@ namespace
 	bool is_virtualization_supported()
 	{
 		return is_vmx_supported() && is_vmx_available();
+	}
+
+	_IRQL_requires_max_(DISPATCH_LEVEL)
+
+	void free_aligned_memory(void* memory)
+	{
+		MmFreeContiguousMemory(memory);
+	}
+
+	_Must_inspect_result_
+	_IRQL_requires_max_(DISPATCH_LEVEL)
+
+	void* allocate_aligned_memory(const size_t size)
+	{
+		PHYSICAL_ADDRESS lowest{}, highest{};
+		lowest.QuadPart = 0;
+		highest.QuadPart = lowest.QuadPart - 1;
+
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+		return MmAllocateContiguousNodeMemory(size,
+		                                      lowest,
+		                                      highest,
+		                                      lowest,
+		                                      PAGE_READWRITE,
+		                                      KeGetCurrentNodeNumber());
+#else
+		return MmAllocateContiguousMemory(size, highest);
+#endif
 	}
 }
 
@@ -70,10 +101,14 @@ void hypervisor::disable()
 	{
 		this->disable_core();
 	});
+
+	this->free_vm_states();
 }
 
 void hypervisor::enable()
 {
+	this->allocate_vm_states();
+
 	thread::dispatch_on_all_cores([this]()
 	{
 		this->enable_core();
@@ -82,8 +117,39 @@ void hypervisor::enable()
 
 void hypervisor::enable_core()
 {
+	auto* vm_state = this->get_current_vm_state();
 }
 
 void hypervisor::disable_core()
 {
+	auto* vm_state = this->get_current_vm_state();
+}
+
+void hypervisor::allocate_vm_states()
+{
+	const auto core_count = thread::get_processor_count();
+	const auto allocation_size = sizeof(vmx::vm_state) * core_count;
+
+	this->vm_states_ = static_cast<vmx::vm_state*>(allocate_aligned_memory(allocation_size));
+	if(!this->vm_states_)
+	{
+		throw std::runtime_error("Failed to allocate vm states");
+	}
+}
+
+void hypervisor::free_vm_states()
+{
+	if(this->vm_states_)
+	{
+		free_aligned_memory(this->vm_states_);
+		this->vm_states_ = nullptr;
+	}
+}
+
+vmx::vm_state* hypervisor::get_current_vm_state() const
+{
+	const auto current_core = thread::get_processor_index();
+
+	assert(this->vm_states_);
+	return &this->vm_states_[current_core];
 }

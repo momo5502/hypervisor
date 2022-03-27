@@ -18,6 +18,13 @@ public:
 	void disable();
 
 private:
+	vmx::vm_state* vm_states_{nullptr};
+
 	void enable_core();
 	void disable_core();
+
+	void allocate_vm_states();
+	void free_vm_states();
+
+	vmx::vm_state* get_current_vm_state() const;
 };
