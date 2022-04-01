@@ -68,15 +68,15 @@ namespace memory
 		return memory;
 	}
 
-	void* get_physical_address(void* address)
+	uint64_t get_physical_address(void* address)
 	{
-		return reinterpret_cast<void*>(MmGetPhysicalAddress(address).QuadPart);
+		return static_cast<uint64_t>(MmGetPhysicalAddress(address).QuadPart);
 	}
 
-	void* get_virtual_address(void* address)
+	void* get_virtual_address(const uint64_t address)
 	{
 		PHYSICAL_ADDRESS physical_address{};
-		physical_address.QuadPart = reinterpret_cast<LONGLONG>(address);
+		physical_address.QuadPart = static_cast<LONGLONG>(address);
 		return MmGetVirtualForPhysical(physical_address);
 	}
 

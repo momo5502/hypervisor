@@ -6,8 +6,12 @@
 #include "finally.hpp"
 #include "memory.hpp"
 #include "thread.hpp"
+#include "assembly.hpp"
 
 #include <ia32.hpp>
+
+#define _1GB                        (1 * 1024 * 1024 * 1024)
+#define _2MB                        (2 * 1024 * 1024)
 
 namespace
 {
@@ -123,9 +127,800 @@ bool hypervisor::try_enable_core(const uint64_t cr3)
 	}
 }
 
-void hypervisor::enable_core(uint64_t /*cr3*/)
+void ShvCaptureSpecialRegisters(vmx::special_registers* special_registers)
+{
+	special_registers->cr0 = __readcr0();
+	special_registers->cr3 = __readcr3();
+	special_registers->cr4 = __readcr4();
+	special_registers->debug_control = __readmsr(IA32_DEBUGCTL);
+	special_registers->msr_gs_base = __readmsr(IA32_GS_BASE);
+	special_registers->kernel_dr7 = __readdr(7);
+	_sgdt(&special_registers->gdtr.limit);
+	__sidt(&special_registers->idtr.limit);
+	_str(&special_registers->tr);
+	_sldt(&special_registers->ldtr);
+}
+
+uintptr_t
+FORCEINLINE
+ShvVmxRead(
+	_In_ UINT32 VmcsFieldId
+)
+{
+	size_t FieldData;
+
+	//
+	// Because VMXREAD returns an error code, and not the data, it is painful
+	// to use in most circumstances. This simple function simplifies it use.
+	//
+	__vmx_vmread(VmcsFieldId, &FieldData);
+	return FieldData;
+}
+
+INT32
+ShvVmxLaunch(
+	VOID)
+{
+	INT32 failureCode;
+
+	//
+	// Launch the VMCS
+	//
+	__vmx_vmlaunch();
+
+	//
+	// If we got here, either VMCS setup failed in some way, or the launch
+	// did not proceed as planned.
+	//
+	failureCode = (INT32)ShvVmxRead(VMCS_VM_INSTRUCTION_ERROR);
+	__vmx_off();
+
+	//
+	// Return the error back to the caller
+	//
+	return failureCode;
+}
+
+#define MTRR_PAGE_SIZE          4096
+#define MTRR_PAGE_MASK          (~(MTRR_PAGE_SIZE-1))
+
+VOID ShvVmxMtrrInitialize(vmx::vm_state* VpData)
+{
+	UINT32 i;
+	ia32_mtrr_capabilities_register mtrrCapabilities;
+	ia32_mtrr_physbase_register mtrrBase;
+	ia32_mtrr_physmask_register mtrrMask;
+	unsigned long bit;
+
+	//
+	// Read the capabilities mask
+	//
+	mtrrCapabilities.flags = __readmsr(IA32_MTRR_CAPABILITIES);
+
+	//
+	// Iterate over each variable MTRR
+	//
+	for (i = 0; i < mtrrCapabilities.variable_range_count; i++)
+	{
+		//
+		// Capture the value
+		//
+		mtrrBase.flags = __readmsr(IA32_MTRR_PHYSBASE0 + i * 2);
+		mtrrMask.flags = __readmsr(IA32_MTRR_PHYSMASK0 + i * 2);
+
+		//
+		// Check if the MTRR is enabled
+		//
+		VpData->mtrr_data[i].type = (UINT32)mtrrBase.type;
+		VpData->mtrr_data[i].enabled = (UINT32)mtrrMask.valid;
+		if (VpData->mtrr_data[i].enabled != FALSE)
+		{
+			//
+			// Set the base
+			//
+			VpData->mtrr_data[i].physical_address_min = mtrrBase.page_frame_number *
+				MTRR_PAGE_SIZE;
+
+			//
+			// Compute the length
+			//
+			_BitScanForward64(&bit, mtrrMask.page_frame_number * MTRR_PAGE_SIZE);
+			VpData->mtrr_data[i].physical_address_max = VpData->mtrr_data[i].
+				physical_address_min +
+				(1ULL << bit) - 1;
+		}
+	}
+}
+
+UINT32
+ShvVmxMtrrAdjustEffectiveMemoryType(
+	vmx::vm_state* VpData,
+	_In_ UINT64 LargePageAddress,
+	_In_ UINT32 CandidateMemoryType
+)
+{
+	UINT32 i;
+
+	//
+	// Loop each MTRR range
+	//
+	for (i = 0; i < sizeof(VpData->mtrr_data) / sizeof(VpData->mtrr_data[0]); i++)
+	{
+		//
+		// Check if it's active
+		//
+		if (VpData->mtrr_data[i].enabled != FALSE)
+		{
+			//
+			// Check if this large page falls within the boundary. If a single
+			// physical page (4KB) touches it, we need to override the entire 2MB.
+			//
+			if (((LargePageAddress + (_2MB - 1)) >= VpData->mtrr_data[i].physical_address_min) &&
+				(LargePageAddress <= VpData->mtrr_data[i].physical_address_max))
+			{
+				//
+				// Override candidate type with MTRR type
+				//
+				CandidateMemoryType = VpData->mtrr_data[i].type;
+			}
+		}
+	}
+
+	//
+	// Return the correct type needed
+	//
+	return CandidateMemoryType;
+}
+
+void ShvVmxEptInitialize(vmx::vm_state* VpData)
+{
+	UINT32 i, j;
+	vmx::pdpte tempEpdpte;
+	vmx::large_pde tempEpde;
+
+	//
+	// Fill out the EPML4E which covers the first 512GB of RAM
+	//
+	VpData->epml4[0].read = 1;
+	VpData->epml4[0].write = 1;
+	VpData->epml4[0].execute = 1;
+	VpData->epml4[0].page_frame_number = memory::get_physical_address(&VpData->epdpt) /
+		PAGE_SIZE;
+
+	//
+	// Fill out a RWX PDPTE
+	//
+	tempEpdpte.full = 0;
+	tempEpdpte.read = tempEpdpte.write = tempEpdpte.execute = 1;
+
+	//
+	// Construct EPT identity map for every 1GB of RAM
+	//
+	__stosq((UINT64*)VpData->epdpt, tempEpdpte.full, PDPTE_ENTRY_COUNT);
+	for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
+	{
+		//
+		// Set the page frame number of the PDE table
+		//
+		VpData->epdpt[i].page_frame_number = memory::get_physical_address(&VpData->epde[i][0]) / PAGE_SIZE;
+	}
+
+	//
+	// Fill out a RWX Large PDE
+	//
+	tempEpde.full = 0;
+	tempEpde.read = tempEpde.write = tempEpde.execute = 1;
+	tempEpde.large = 1;
+
+	//
+	// Loop every 1GB of RAM (described by the PDPTE)
+	//
+	__stosq((UINT64*)VpData->epdpt, tempEpde.full, PDPTE_ENTRY_COUNT * PDE_ENTRY_COUNT);
+	for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
+	{
+		//
+		// Construct EPT identity map for every 2MB of RAM
+		//
+		for (j = 0; j < PDE_ENTRY_COUNT; j++)
+		{
+			VpData->epde[i][j].page_frame_number = (i * 512) + j;
+			VpData->epde[i][j].type = ShvVmxMtrrAdjustEffectiveMemoryType(VpData,
+			                                                              VpData->epde[i][j].page_frame_number * _2MB,
+			                                                              MEMORY_TYPE_WRITE_BACK);
+		}
+	}
+}
+
+
+UINT8
+ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
+{
+	auto* Registers = &VpData->special_registers;
+
+	//
+	// Ensure the the VMCS can fit into a single page
+	//
+	ia32_vmx_basic_register basic_register{};
+	basic_register.flags = VpData->msr_data[0].QuadPart;
+	if (basic_register.vmcs_size_in_bytes > PAGE_SIZE)
+	{
+		return FALSE;
+	}
+
+	//
+	// Ensure that the VMCS is supported in writeback memory
+	//
+	if (basic_register.memory_type != MEMORY_TYPE_WRITE_BACK)
+	{
+		return FALSE;
+	}
+
+	//
+	// Ensure that true MSRs can be used for capabilities
+	//
+	if (basic_register.must_be_zero)
+	{
+		return FALSE;
+	}
+
+	//
+	// Ensure that EPT is available with the needed features SimpleVisor uses
+	//
+	ia32_vmx_ept_vpid_cap_register ept_vpid_cap_register{};
+	ept_vpid_cap_register.flags = VpData->msr_data[12].QuadPart;
+
+	if (ept_vpid_cap_register.page_walk_length_4 &&
+		ept_vpid_cap_register.memory_type_write_back &&
+		ept_vpid_cap_register.pde_2mb_pages)
+	{
+		//
+		// Enable EPT if these features are supported
+		//
+		VpData->ept_controls.flags = 0;
+		VpData->ept_controls.enable_ept = 1;
+		VpData->ept_controls.enable_vpid = 1;
+	}
+
+	//
+	// Capture the revision ID for the VMXON and VMCS region
+	//
+	VpData->vmx_on.revision_id = VpData->msr_data[0].LowPart;
+	VpData->vmcs.revision_id = VpData->msr_data[0].LowPart;
+
+	//
+	// Store the physical addresses of all per-LP structures allocated
+	//
+	VpData->vmx_on_physical_address = memory::get_physical_address(&VpData->vmx_on);
+	VpData->vmcs_physical_address = memory::get_physical_address(&VpData->vmcs);
+	VpData->msr_bitmap_physical_address = memory::get_physical_address(VpData->msr_bitmap);
+	VpData->ept_pml4_physical_address = memory::get_physical_address(&VpData->epml4);
+
+	//
+	// Update CR0 with the must-be-zero and must-be-one requirements
+	//
+	Registers->cr0 &= VpData->msr_data[7].LowPart;
+	Registers->cr0 |= VpData->msr_data[6].LowPart;
+
+	//
+	// Do the same for CR4
+	//
+	Registers->cr4 &= VpData->msr_data[9].LowPart;
+	Registers->cr4 |= VpData->msr_data[8].LowPart;
+
+	//
+	// Update host CR0 and CR4 based on the requirements above
+	//
+	__writecr0(Registers->cr0);
+	__writecr4(Registers->cr4);
+
+	//
+	// Enable VMX Root Mode
+	//
+	if (__vmx_on(&VpData->vmx_on_physical_address))
+	{
+		return FALSE;
+	}
+
+	//
+	// Clear the state of the VMCS, setting it to Inactive
+	//
+	if (__vmx_vmclear(&VpData->vmcs_physical_address))
+	{
+		__vmx_off();
+		return FALSE;
+	}
+
+	//
+	// Load the VMCS, setting its state to Active
+	//
+	if (__vmx_vmptrld(&VpData->vmcs_physical_address))
+	{
+		__vmx_off();
+		return FALSE;
+	}
+
+	//
+	// VMX Root Mode is enabled, with an active VMCS.
+	//
+	return TRUE;
+}
+
+typedef struct _VMX_GDTENTRY64
+{
+	UINT64 Base;
+	UINT32 Limit;
+
+	union
+	{
+		struct
+		{
+			UINT8 Flags1;
+			UINT8 Flags2;
+			UINT8 Flags3;
+			UINT8 Flags4;
+		} Bytes;
+
+		struct
+		{
+			UINT16 SegmentType : 4;
+			UINT16 DescriptorType : 1;
+			UINT16 Dpl : 2;
+			UINT16 Present : 1;
+
+			UINT16 Reserved : 4;
+			UINT16 System : 1;
+			UINT16 LongMode : 1;
+			UINT16 DefaultBig : 1;
+			UINT16 Granularity : 1;
+
+			UINT16 Unusable : 1;
+			UINT16 Reserved2 : 15;
+		} Bits;
+
+		UINT32 AccessRights;
+	};
+
+	UINT16 Selector;
+} VMX_GDTENTRY64, *PVMX_GDTENTRY64;
+
+
+typedef union _KGDTENTRY64
+{
+	struct
+	{
+		UINT16 LimitLow;
+		UINT16 BaseLow;
+
+		union
+		{
+			struct
+			{
+				UINT8 BaseMiddle;
+				UINT8 Flags1;
+				UINT8 Flags2;
+				UINT8 BaseHigh;
+			} Bytes;
+
+			struct
+			{
+				UINT32 BaseMiddle : 8;
+				UINT32 Type : 5;
+				UINT32 Dpl : 2;
+				UINT32 Present : 1;
+				UINT32 LimitHigh : 4;
+				UINT32 System : 1;
+				UINT32 LongMode : 1;
+				UINT32 DefaultBig : 1;
+				UINT32 Granularity : 1;
+				UINT32 BaseHigh : 8;
+			} Bits;
+		};
+
+		UINT32 BaseUpper;
+		UINT32 MustBeZero;
+	};
+
+	struct
+	{
+		INT64 DataLow;
+		INT64 DataHigh;
+	};
+} KGDTENTRY64, *PKGDTENTRY64;
+
+VOID
+ShvUtilConvertGdtEntry(
+	_In_ VOID* GdtBase,
+	_In_ UINT16 Selector,
+	_Out_ PVMX_GDTENTRY64 VmxGdtEntry
+)
+{
+	PKGDTENTRY64 gdtEntry;
+
+	//
+	// Reject LDT or NULL entries
+	//
+	if ((Selector == 0) ||
+		(Selector & SEGMENT_SELECTOR_TABLE_FLAG) != 0)
+	{
+		VmxGdtEntry->Limit = VmxGdtEntry->AccessRights = 0;
+		VmxGdtEntry->Base = 0;
+		VmxGdtEntry->Selector = 0;
+		VmxGdtEntry->Bits.Unusable = TRUE;
+		return;
+	}
+
+	//
+	// Read the GDT entry at the given selector, masking out the RPL bits.
+	//
+	gdtEntry = (PKGDTENTRY64)((uintptr_t)GdtBase + (Selector & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK));
+
+	//
+	// Write the selector directly 
+	//
+	VmxGdtEntry->Selector = Selector;
+
+	//
+	// Use the LSL intrinsic to read the segment limit
+	//
+	VmxGdtEntry->Limit = __segmentlimit(Selector);
+
+	//
+	// Build the full 64-bit effective address, keeping in mind that only when
+	// the System bit is unset, should this be done.
+	//
+	// NOTE: The Windows definition of KGDTENTRY64 is WRONG. The "System" field
+	// is incorrectly defined at the position of where the AVL bit should be.
+	// The actual location of the SYSTEM bit is encoded as the highest bit in
+	// the "Type" field.
+	//
+	VmxGdtEntry->Base = ((gdtEntry->Bytes.BaseHigh << 24) |
+		(gdtEntry->Bytes.BaseMiddle << 16) |
+		(gdtEntry->BaseLow)) & 0xFFFFFFFF;
+	VmxGdtEntry->Base |= ((gdtEntry->Bits.Type & 0x10) == 0) ? ((uintptr_t)gdtEntry->BaseUpper << 32) : 0;
+
+	//
+	// Load the access rights
+	//
+	VmxGdtEntry->AccessRights = 0;
+	VmxGdtEntry->Bytes.Flags1 = gdtEntry->Bytes.Flags1;
+	VmxGdtEntry->Bytes.Flags2 = gdtEntry->Bytes.Flags2;
+
+	//
+	// Finally, handle the VMX-specific bits
+	//
+	VmxGdtEntry->Bits.Reserved = 0;
+	VmxGdtEntry->Bits.Unusable = !gdtEntry->Bits.Present;
+}
+
+UINT32
+ShvUtilAdjustMsr(
+	_In_ LARGE_INTEGER ControlValue,
+	_In_ UINT32 DesiredValue
+)
+{
+	//
+	// VMX feature/capability MSRs encode the "must be 0" bits in the high word
+	// of their value, and the "must be 1" bits in the low word of their value.
+	// Adjust any requested capability/feature based on these requirements.
+	//
+	DesiredValue &= ControlValue.HighPart;
+	DesiredValue |= ControlValue.LowPart;
+	return DesiredValue;
+}
+
+
+void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
+{
+	auto* state = &VpData->special_registers;
+	PCONTEXT context = &VpData->context_frame;
+	VMX_GDTENTRY64 vmxGdtEntry; // vmx_segment_access_rights
+	ept_pointer vmxEptp;
+
+	//
+	// Begin by setting the link pointer to the required value for 4KB VMCS.
+	//
+	__vmx_vmwrite(VMCS_GUEST_VMCS_LINK_POINTER, ~0ULL);
+
+	//
+	// Enable EPT features if supported
+	//
+	if (VpData->ept_controls.flags != 0)
+	{
+		//
+		// Configure the EPTP
+		//
+		vmxEptp.flags = 0;
+		vmxEptp.page_walk_length = 3;
+		vmxEptp.memory_type = MEMORY_TYPE_WRITE_BACK;
+		vmxEptp.page_frame_number = VpData->ept_pml4_physical_address / PAGE_SIZE;
+
+		//
+		// Load EPT Root Pointer
+		//
+		__vmx_vmwrite(VMCS_CTRL_EPT_POINTER, vmxEptp.flags);
+
+		//
+		// Set VPID to one
+		//
+		__vmx_vmwrite(VMCS_CTRL_VIRTUAL_PROCESSOR_IDENTIFIER, 1);
+	}
+
+	//
+	// Load the MSR bitmap. Unlike other bitmaps, not having an MSR bitmap will
+	// trap all MSRs, so we allocated an empty one.
+	//
+	__vmx_vmwrite(VMCS_CTRL_MSR_BITMAP_ADDRESS, VpData->msr_bitmap_physical_address);
+
+	//
+	// Enable support for RDTSCP and XSAVES/XRESTORES in the guest. Windows 10
+	// makes use of both of these instructions if the CPU supports it. By using
+	// ShvUtilAdjustMsr, these options will be ignored if this processor does
+	// not actually support the instructions to begin with.
+	//
+	// Also enable EPT support, for additional performance and ability to trap
+	// memory access efficiently.
+	//
+	auto ept_controls = VpData->ept_controls;
+	ept_controls.enable_rdtscp = 1;
+	ept_controls.enable_invpcid = 1;
+	ept_controls.enable_xsaves = 1;
+	__vmx_vmwrite(VMCS_CTRL_SECONDARY_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
+	              ShvUtilAdjustMsr(VpData->msr_data[11], ept_controls.flags));
+
+	//
+	// Enable no pin-based options ourselves, but there may be some required by
+	// the processor. Use ShvUtilAdjustMsr to add those in.
+	//
+	__vmx_vmwrite(VMCS_CTRL_PIN_BASED_VM_EXECUTION_CONTROLS,
+	              ShvUtilAdjustMsr(VpData->msr_data[13], 0));
+
+	//
+	// In order for our choice of supporting RDTSCP and XSAVE/RESTORES above to
+	// actually mean something, we have to request secondary controls. We also
+	// want to activate the MSR bitmap in order to keep them from being caught.
+	//
+	ia32_vmx_procbased_ctls_register procbased_ctls_register{};
+	procbased_ctls_register.activate_secondary_controls = 1;
+	procbased_ctls_register.use_msr_bitmaps = 1;
+
+	__vmx_vmwrite(VMCS_CTRL_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
+	              ShvUtilAdjustMsr(VpData->msr_data[14],
+	                               procbased_ctls_register.flags));
+
+	//
+	// Make sure to enter us in x64 mode at all times.
+	//
+	ia32_vmx_exit_ctls_register exit_ctls_register{};
+	exit_ctls_register.host_address_space_size = 1;
+	__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS,
+	              ShvUtilAdjustMsr(VpData->msr_data[15],
+	                               exit_ctls_register.flags));
+
+	//
+	// As we exit back into the guest, make sure to exist in x64 mode as well.
+	//
+	ia32_vmx_entry_ctls_register entry_ctls_register{};
+	entry_ctls_register.ia32e_mode_guest = 1;
+	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS,
+	              ShvUtilAdjustMsr(VpData->msr_data[16],
+	                               entry_ctls_register.flags));
+
+	//
+	// Load the CS Segment (Ring 0 Code)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegCs, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_CS_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_CS_SELECTOR, context->SegCs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
+
+	//
+	// Load the SS Segment (Ring 0 Data)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegSs, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_SS_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_SS_SELECTOR, context->SegSs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
+
+	//
+	// Load the DS Segment (Ring 3 Data)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegDs, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_DS_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_DS_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_DS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_DS_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_DS_SELECTOR, context->SegDs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
+
+	//
+	// Load the ES Segment (Ring 3 Data)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegEs, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_ES_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_ES_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_ES_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_ES_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_ES_SELECTOR, context->SegEs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
+
+	//
+	// Load the FS Segment (Ring 3 Compatibility-Mode TEB)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegFs, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_FS_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_FS_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_FS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_FS_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_FS_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_FS_SELECTOR, context->SegFs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
+
+	//
+	// Load the GS Segment (Ring 3 Data if in Compatibility-Mode, MSR-based in Long Mode)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegGs, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_GS_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_GS_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_GS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_GS_BASE, state->msr_gs_base);
+	__vmx_vmwrite(VMCS_HOST_GS_BASE, state->msr_gs_base);
+	__vmx_vmwrite(VMCS_HOST_GS_SELECTOR, context->SegGs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
+
+	//
+	// Load the Task Register (Ring 0 TSS)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, state->tr, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_TR_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_TR_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_TR_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_TR_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_TR_BASE, vmxGdtEntry.Base);
+	__vmx_vmwrite(VMCS_HOST_TR_SELECTOR, state->tr & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
+
+	//
+	// Load the Local Descriptor Table (Ring 0 LDT on Redstone)
+	//
+	ShvUtilConvertGdtEntry(state->gdtr.base, state->ldtr, &vmxGdtEntry);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_SELECTOR, vmxGdtEntry.Selector);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_LIMIT, vmxGdtEntry.Limit);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_BASE, vmxGdtEntry.Base);
+
+	//
+	// Now load the GDT itself
+	//
+	__vmx_vmwrite(VMCS_GUEST_GDTR_BASE, (uintptr_t)state->gdtr.base);
+	__vmx_vmwrite(VMCS_GUEST_GDTR_LIMIT, state->gdtr.limit);
+	__vmx_vmwrite(VMCS_HOST_GDTR_BASE, (uintptr_t)state->gdtr.base);
+
+	//
+	// And then the IDT
+	//
+	__vmx_vmwrite(VMCS_GUEST_IDTR_BASE, (uintptr_t)state->idtr.base);
+	__vmx_vmwrite(VMCS_GUEST_IDTR_LIMIT, state->idtr.limit);
+	__vmx_vmwrite(VMCS_HOST_IDTR_BASE, (uintptr_t)state->idtr.base);
+
+	//
+	// Load CR0
+	//
+	__vmx_vmwrite(VMCS_CTRL_CR0_READ_SHADOW, state->cr0);
+	__vmx_vmwrite(VMCS_HOST_CR0, state->cr0);
+	__vmx_vmwrite(VMCS_GUEST_CR0, state->cr0);
+
+	//
+	// Load CR3 -- do not use the current process' address space for the host,
+	// because we may be executing in an arbitrary user-mode process right now
+	// as part of the DPC interrupt we execute in.
+	//
+	__vmx_vmwrite(VMCS_HOST_CR3, VpData->system_directory_table_base);
+	__vmx_vmwrite(VMCS_GUEST_CR3, state->cr3);
+
+	//
+	// Load CR4
+	//
+	__vmx_vmwrite(VMCS_HOST_CR4, state->cr4);
+	__vmx_vmwrite(VMCS_GUEST_CR4, state->cr4);
+	__vmx_vmwrite(VMCS_CTRL_CR4_READ_SHADOW, state->cr4);
+
+	//
+	// Load debug MSR and register (DR7)
+	//
+	__vmx_vmwrite(VMCS_GUEST_DEBUGCTL, state->debug_control);
+	__vmx_vmwrite(VMCS_GUEST_DR7, state->kernel_dr7);
+
+	//
+	// Finally, load the guest stack, instruction pointer, and rflags, which
+	// corresponds exactly to the location where RtlCaptureContext will return
+	// to inside of ShvVpInitialize.
+	//
+	__vmx_vmwrite(VMCS_GUEST_RSP, (uintptr_t)VpData->stack_buffer + KERNEL_STACK_SIZE - sizeof(CONTEXT));
+	__vmx_vmwrite(VMCS_GUEST_RIP, (uintptr_t)ShvVpRestoreAfterLaunch);
+	__vmx_vmwrite(VMCS_GUEST_RFLAGS, context->EFlags);
+
+	//
+	// Load the hypervisor entrypoint and stack. We give ourselves a standard
+	// size kernel stack (24KB) and bias for the context structure that the
+	// hypervisor entrypoint will push on the stack, avoiding the need for RSP
+	// modifying instructions in the entrypoint. Note that the CONTEXT pointer
+	// and thus the stack itself, must be 16-byte aligned for ABI compatibility
+	// with AMD64 -- specifically, XMM operations will fail otherwise, such as
+	// the ones that RtlCaptureContext will perform.
+	//
+	C_ASSERT((KERNEL_STACK_SIZE - sizeof(CONTEXT)) % 16 == 0);
+	__vmx_vmwrite(VMCS_HOST_RSP, (uintptr_t)VpData->stack_buffer + KERNEL_STACK_SIZE - sizeof(CONTEXT));
+	__vmx_vmwrite(VMCS_HOST_RIP, (uintptr_t)ShvVmxEntry);
+}
+
+INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
+{
+	//
+	// Initialize all the VMX-related MSRs by reading their value
+	//
+	for (UINT32 i = 0; i < sizeof(VpData->msr_data) / sizeof(VpData->msr_data[0]); i++)
+	{
+		VpData->msr_data[i].QuadPart = __readmsr(IA32_VMX_BASIC + i);
+	}
+
+	//
+	// Initialize all the MTRR-related MSRs by reading their value and build
+	// range structures to describe their settings
+	//
+	ShvVmxMtrrInitialize(VpData);
+
+	//
+	// Initialize the EPT structures
+	//
+	ShvVmxEptInitialize(VpData);
+
+	//
+	// Attempt to enter VMX root mode on this processor.
+	//
+	if (ShvVmxEnterRootModeOnVp(VpData) == FALSE)
+	{
+		throw std::runtime_error("Not available");
+	}
+
+	//
+	// Initialize the VMCS, both guest and host state.
+	//
+	ShvVmxSetupVmcsForVp(VpData);
+
+	//
+	// Launch the VMCS, based on the guest data that was loaded into the
+	// various VMCS fields by ShvVmxSetupVmcsForVp. This will cause the
+	// processor to jump to ShvVpRestoreAfterLaunch on success, or return
+	// back to the caller on failure.
+	//
+	return ShvVmxLaunch();
+}
+
+
+void hypervisor::enable_core(const uint64_t system_directory_table_base)
 {
 	auto* vm_state = this->get_current_vm_state();
+
+	vm_state->system_directory_table_base = system_directory_table_base;
+
+	ShvCaptureSpecialRegisters(&vm_state->special_registers);
+
+	//
+	// Then, capture the entire register state. We will need this, as once we
+	// launch the VM, it will begin execution at the defined guest instruction
+	// pointer, which we set to ShvVpRestoreAfterLaunch, with the registers set
+	// to whatever value they were deep inside the VMCS/VMX initialization code.
+	// By using RtlRestoreContext, that function sets the AC flag in EFLAGS and
+	// returns here with our registers restored.
+	//
+	RtlCaptureContext(&vm_state->context_frame);
+	if ((__readeflags() & EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG) == 0)
+	{
+		//
+		// If the AC bit is not set in EFLAGS, it means that we have not yet
+		// launched the VM. Attempt to initialize VMX on this processor.
+		//
+		ShvVmxLaunchOnVp(vm_state);
+	}
 
 	if (!is_hypervisor_present())
 	{
@@ -135,12 +930,8 @@ void hypervisor::enable_core(uint64_t /*cr3*/)
 
 void hypervisor::disable_core()
 {
-	if (!is_hypervisor_present())
-	{
-		return;
-	}
-
-	auto* vm_state = this->get_current_vm_state();
+	int32_t cpu_info[4]{0};
+	__cpuidex(cpu_info, 0x41414141, 0x42424242);
 }
 
 void hypervisor::allocate_vm_states()

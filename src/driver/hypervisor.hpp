@@ -20,8 +20,8 @@ public:
 private:
 	vmx::vm_state* vm_states_{nullptr};
 
-	void enable_core(uint64_t cr3);
-	bool try_enable_core(uint64_t cr3);
+	void enable_core(uint64_t system_directory_table_base);
+	bool try_enable_core(uint64_t system_directory_table_base);
 	void disable_core();
 
 	void allocate_vm_states();

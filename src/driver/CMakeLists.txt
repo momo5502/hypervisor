@@ -1,11 +1,15 @@
+enable_language(ASM_MASM)
+
 string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
 
 file(GLOB driver_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 file(GLOB driver_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
+file(GLOB driver_asm_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.asm)
 
 wdk_add_driver(driver
     ${driver_sources}
     ${driver_headers}
+    ${driver_asm_sources}
 )
 target_precompile_headers(driver
 	PRIVATE std_include.hpp
