@@ -318,7 +318,7 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 	//
 	// Loop every 1GB of RAM (described by the PDPTE)
 	//
-	__stosq((UINT64*)VpData->epdpt, tempEpde.full, PDPTE_ENTRY_COUNT * PDE_ENTRY_COUNT);
+	__stosq((UINT64*)VpData->epde, tempEpde.full, PDPTE_ENTRY_COUNT * PDE_ENTRY_COUNT);
 	for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
 	{
 		//
