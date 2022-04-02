@@ -1248,10 +1248,6 @@ void hypervisor::allocate_vm_states()
 	// As Windows technically supports cpu hot-plugging, keep track of the allocation count
 	this->vm_state_count_ = thread::get_processor_count();
 	this->vm_states_ = new vmx::vm_state*[this->vm_state_count_]{};
-	if (!this->vm_states_)
-	{
-		throw std::runtime_error("Failed to allocate VM states array");
-	}
 
 	for (auto i = 0u; i < this->vm_state_count_; ++i)
 	{
