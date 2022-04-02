@@ -18,7 +18,8 @@ public:
 	void disable();
 
 private:
-	vmx::vm_state* vm_states_{nullptr};
+	uint32_t vm_state_count_{0};
+	vmx::vm_state** vm_states_{nullptr};
 
 	void enable_core(uint64_t system_directory_table_base);
 	bool try_enable_core(uint64_t system_directory_table_base);

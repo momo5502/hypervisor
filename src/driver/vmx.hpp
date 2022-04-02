@@ -1,5 +1,11 @@
 #pragma once
 
+#define _1GB                        (1 * 1024 * 1024 * 1024)
+#define _2MB                        (2 * 1024 * 1024)
+
+#define HYPERV_HYPERVISOR_PRESENT_BIT           0x80000000
+#define HYPERV_CPUID_INTERFACE                  0x40000001
+
 namespace vmx
 {
 	struct vmcs
@@ -33,27 +39,23 @@ namespace vmx
 
 #define DECLSPEC_PAGE_ALIGN DECLSPEC_ALIGN(PAGE_SIZE)
 
+	struct vm_launch_context
+	{
+		struct special_registers special_registers;
+		CONTEXT context_frame;
+		uint64_t system_directory_table_base;
+		LARGE_INTEGER msr_data[17];
+		mtrr_range mtrr_data[16];
+		uint64_t vmx_on_physical_address;
+		uint64_t vmcs_physical_address;
+		uint64_t msr_bitmap_physical_address;
+		uint64_t ept_pml4_physical_address;
+		ia32_vmx_procbased_ctls2_register ept_controls;
+	};
+
 	struct vm_state
 	{
-		union
-		{
-			DECLSPEC_PAGE_ALIGN uint8_t stack_buffer[KERNEL_STACK_SIZE]{};
-
-			struct
-			{
-				struct special_registers special_registers;
-				CONTEXT context_frame;
-				uint64_t system_directory_table_base;
-				LARGE_INTEGER msr_data[17];
-				mtrr_range mtrr_data[16];
-				uint64_t vmx_on_physical_address;
-				uint64_t vmcs_physical_address;
-				uint64_t msr_bitmap_physical_address;
-				uint64_t ept_pml4_physical_address;
-				ia32_vmx_procbased_ctls2_register ept_controls;
-			};
-		};
-
+		DECLSPEC_PAGE_ALIGN uint8_t stack_buffer[KERNEL_STACK_SIZE]{};
 		DECLSPEC_PAGE_ALIGN uint8_t msr_bitmap[PAGE_SIZE]{};
 		DECLSPEC_PAGE_ALIGN ept_pml4 epml4[EPT_PML4E_ENTRY_COUNT]{};
 		DECLSPEC_PAGE_ALIGN epdpte epdpt[EPT_PDPTE_ENTRY_COUNT]{};
@@ -61,6 +63,7 @@ namespace vmx
 
 		DECLSPEC_PAGE_ALIGN vmcs vmx_on{};
 		DECLSPEC_PAGE_ALIGN vmcs vmcs{};
+		DECLSPEC_PAGE_ALIGN vm_launch_context launch_context{};
 	};
 }
 

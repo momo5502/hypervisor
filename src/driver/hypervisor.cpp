@@ -8,11 +8,6 @@
 #include "thread.hpp"
 #include "assembly.hpp"
 
-#include <ia32.hpp>
-
-#define _1GB                        (1 * 1024 * 1024 * 1024)
-#define _2MB                        (2 * 1024 * 1024)
-
 namespace
 {
 	hypervisor* instance{nullptr};
@@ -35,9 +30,6 @@ namespace
 	{
 		return is_vmx_supported() && is_vmx_available();
 	}
-
-#define HYPERV_HYPERVISOR_PRESENT_BIT           0x80000000
-#define HYPERV_CPUID_INTERFACE                  0x40000001
 
 	bool is_hypervisor_present()
 	{
@@ -196,7 +188,8 @@ VOID ShvVmxMtrrInitialize(vmx::vm_state* VpData)
 	ia32_mtrr_capabilities_register mtrrCapabilities;
 	ia32_mtrr_physbase_register mtrrBase;
 	ia32_mtrr_physmask_register mtrrMask;
-	unsigned long bit;
+
+	auto* launch_context = &VpData->launch_context;
 
 	//
 	// Read the capabilities mask
@@ -217,21 +210,22 @@ VOID ShvVmxMtrrInitialize(vmx::vm_state* VpData)
 		//
 		// Check if the MTRR is enabled
 		//
-		VpData->mtrr_data[i].type = (UINT32)mtrrBase.type;
-		VpData->mtrr_data[i].enabled = (UINT32)mtrrMask.valid;
-		if (VpData->mtrr_data[i].enabled != FALSE)
+		launch_context->mtrr_data[i].type = (UINT32)mtrrBase.type;
+		launch_context->mtrr_data[i].enabled = (UINT32)mtrrMask.valid;
+		if (launch_context->mtrr_data[i].enabled != FALSE)
 		{
 			//
 			// Set the base
 			//
-			VpData->mtrr_data[i].physical_address_min = mtrrBase.page_frame_number *
+			launch_context->mtrr_data[i].physical_address_min = mtrrBase.page_frame_number *
 				MTRR_PAGE_SIZE;
 
 			//
 			// Compute the length
 			//
+			unsigned long bit;
 			_BitScanForward64(&bit, mtrrMask.page_frame_number * MTRR_PAGE_SIZE);
-			VpData->mtrr_data[i].physical_address_max = VpData->mtrr_data[i].
+			launch_context->mtrr_data[i].physical_address_max = launch_context->mtrr_data[i].
 				physical_address_min +
 				(1ULL << bit) - 1;
 		}
@@ -245,27 +239,29 @@ ShvVmxMtrrAdjustEffectiveMemoryType(
 	_In_ UINT32 CandidateMemoryType
 )
 {
+	auto* launch_context = &VpData->launch_context;
+
 	//
 	// Loop each MTRR range
 	//
-	for (auto i = 0u; i < sizeof(VpData->mtrr_data) / sizeof(VpData->mtrr_data[0]); i++)
+	for (auto i = 0u; i < sizeof(launch_context->mtrr_data) / sizeof(launch_context->mtrr_data[0]); i++)
 	{
 		//
 		// Check if it's active
 		//
-		if (VpData->mtrr_data[i].enabled != FALSE)
+		if (launch_context->mtrr_data[i].enabled != FALSE)
 		{
 			//
 			// Check if this large page falls within the boundary. If a single
 			// physical page (4KB) touches it, we need to override the entire 2MB.
 			//
-			if (((LargePageAddress + (_2MB - 1)) >= VpData->mtrr_data[i].physical_address_min) &&
-				(LargePageAddress <= VpData->mtrr_data[i].physical_address_max))
+			if (((LargePageAddress + (_2MB - 1)) >= launch_context->mtrr_data[i].physical_address_min) &&
+				(LargePageAddress <= launch_context->mtrr_data[i].physical_address_max))
 			{
 				//
 				// Override candidate type with MTRR type
 				//
-				CandidateMemoryType = VpData->mtrr_data[i].type;
+				CandidateMemoryType = launch_context->mtrr_data[i].type;
 			}
 		}
 	}
@@ -341,13 +337,14 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 UINT8
 ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
 {
-	auto* Registers = &VpData->special_registers;
+	auto* launch_context = &VpData->launch_context;
+	auto* Registers = &launch_context->special_registers;
 
 	//
 	// Ensure the the VMCS can fit into a single page
 	//
 	ia32_vmx_basic_register basic_register{};
-	basic_register.flags = VpData->msr_data[0].QuadPart;
+	basic_register.flags = launch_context->msr_data[0].QuadPart;
 	if (basic_register.vmcs_size_in_bytes > PAGE_SIZE)
 	{
 		return FALSE;
@@ -373,7 +370,7 @@ ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
 	// Ensure that EPT is available with the needed features SimpleVisor uses
 	//
 	ia32_vmx_ept_vpid_cap_register ept_vpid_cap_register{};
-	ept_vpid_cap_register.flags = VpData->msr_data[12].QuadPart;
+	ept_vpid_cap_register.flags = launch_context->msr_data[12].QuadPart;
 
 	if (ept_vpid_cap_register.page_walk_length_4 &&
 		ept_vpid_cap_register.memory_type_write_back &&
@@ -382,36 +379,36 @@ ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
 		//
 		// Enable EPT if these features are supported
 		//
-		VpData->ept_controls.flags = 0;
-		VpData->ept_controls.enable_ept = 1;
-		VpData->ept_controls.enable_vpid = 1;
+		launch_context->ept_controls.flags = 0;
+		launch_context->ept_controls.enable_ept = 1;
+		launch_context->ept_controls.enable_vpid = 1;
 	}
 
 	//
 	// Capture the revision ID for the VMXON and VMCS region
 	//
-	VpData->vmx_on.revision_id = VpData->msr_data[0].LowPart;
-	VpData->vmcs.revision_id = VpData->msr_data[0].LowPart;
+	VpData->vmx_on.revision_id = launch_context->msr_data[0].LowPart;
+	VpData->vmcs.revision_id = launch_context->msr_data[0].LowPart;
 
 	//
 	// Store the physical addresses of all per-LP structures allocated
 	//
-	VpData->vmx_on_physical_address = memory::get_physical_address(&VpData->vmx_on);
-	VpData->vmcs_physical_address = memory::get_physical_address(&VpData->vmcs);
-	VpData->msr_bitmap_physical_address = memory::get_physical_address(VpData->msr_bitmap);
-	VpData->ept_pml4_physical_address = memory::get_physical_address(&VpData->epml4);
+	launch_context->vmx_on_physical_address = memory::get_physical_address(&VpData->vmx_on);
+	launch_context->vmcs_physical_address = memory::get_physical_address(&VpData->vmcs);
+	launch_context->msr_bitmap_physical_address = memory::get_physical_address(VpData->msr_bitmap);
+	launch_context->ept_pml4_physical_address = memory::get_physical_address(&VpData->epml4);
 
 	//
 	// Update CR0 with the must-be-zero and must-be-one requirements
 	//
-	Registers->cr0 &= VpData->msr_data[7].LowPart;
-	Registers->cr0 |= VpData->msr_data[6].LowPart;
+	Registers->cr0 &= launch_context->msr_data[7].LowPart;
+	Registers->cr0 |= launch_context->msr_data[6].LowPart;
 
 	//
 	// Do the same for CR4
 	//
-	Registers->cr4 &= VpData->msr_data[9].LowPart;
-	Registers->cr4 |= VpData->msr_data[8].LowPart;
+	Registers->cr4 &= launch_context->msr_data[9].LowPart;
+	Registers->cr4 |= launch_context->msr_data[8].LowPart;
 
 	//
 	// Update host CR0 and CR4 based on the requirements above
@@ -422,7 +419,7 @@ ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
 	//
 	// Enable VMX Root Mode
 	//
-	if (__vmx_on(&VpData->vmx_on_physical_address))
+	if (__vmx_on(&launch_context->vmx_on_physical_address))
 	{
 		return FALSE;
 	}
@@ -430,7 +427,7 @@ ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
 	//
 	// Clear the state of the VMCS, setting it to Inactive
 	//
-	if (__vmx_vmclear(&VpData->vmcs_physical_address))
+	if (__vmx_vmclear(&launch_context->vmcs_physical_address))
 	{
 		__vmx_off();
 		return FALSE;
@@ -439,7 +436,7 @@ ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
 	//
 	// Load the VMCS, setting its state to Active
 	//
-	if (__vmx_vmptrld(&VpData->vmcs_physical_address))
+	if (__vmx_vmptrld(&launch_context->vmcs_physical_address))
 	{
 		__vmx_off();
 		return FALSE;
@@ -583,13 +580,13 @@ ShvVpRestoreAfterLaunch(
 	// Record that VMX is now enabled by returning back to ShvVpInitialize with
 	// the Alignment Check (AC) bit set.
 	//
-	vpData->context_frame.EFlags |= EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG;
+	vpData->launch_context.context_frame.EFlags |= EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG;
 
 	//
 	// And finally, restore the context, so that all register and stack
 	// state is finally restored.
 	//
-	ShvOsRestoreContext2(&vpData->context_frame, nullptr);
+	ShvOsRestoreContext2(&vpData->launch_context.context_frame, nullptr);
 }
 
 
@@ -766,8 +763,8 @@ ShvOsUnprepareProcessor(
 	// eventually crash the system. Since we know what the original state
 	// of the GDTR and IDTR was, simply restore it now.
 	//
-	__lgdt(&VpData->special_registers.gdtr.limit);
-	__lidt(&VpData->special_registers.idtr.limit);
+	__lgdt(&VpData->launch_context.special_registers.gdtr.limit);
+	__lidt(&VpData->launch_context.special_registers.idtr.limit);
 }
 
 DECLSPEC_NORETURN
@@ -904,8 +901,9 @@ ShvVmxEntry(
 
 void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 {
-	auto* state = &VpData->special_registers;
-	PCONTEXT context = &VpData->context_frame;
+	auto* launch_context = &VpData->launch_context;
+	auto* state = &launch_context->special_registers;
+	PCONTEXT context = &launch_context->context_frame;
 	vmx_gdt_entry vmxGdtEntry;
 	ept_pointer vmxEptp;
 
@@ -917,7 +915,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Enable EPT features if supported
 	//
-	if (VpData->ept_controls.flags != 0)
+	if (launch_context->ept_controls.flags != 0)
 	{
 		//
 		// Configure the EPTP
@@ -925,7 +923,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 		vmxEptp.flags = 0;
 		vmxEptp.page_walk_length = 3;
 		vmxEptp.memory_type = MEMORY_TYPE_WRITE_BACK;
-		vmxEptp.page_frame_number = VpData->ept_pml4_physical_address / PAGE_SIZE;
+		vmxEptp.page_frame_number = launch_context->ept_pml4_physical_address / PAGE_SIZE;
 
 		//
 		// Load EPT Root Pointer
@@ -942,7 +940,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	// Load the MSR bitmap. Unlike other bitmaps, not having an MSR bitmap will
 	// trap all MSRs, so we allocated an empty one.
 	//
-	__vmx_vmwrite(VMCS_CTRL_MSR_BITMAP_ADDRESS, VpData->msr_bitmap_physical_address);
+	__vmx_vmwrite(VMCS_CTRL_MSR_BITMAP_ADDRESS, launch_context->msr_bitmap_physical_address);
 
 	//
 	// Enable support for RDTSCP and XSAVES/XRESTORES in the guest. Windows 10
@@ -953,19 +951,19 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	// Also enable EPT support, for additional performance and ability to trap
 	// memory access efficiently.
 	//
-	auto ept_controls = VpData->ept_controls;
+	auto ept_controls = launch_context->ept_controls;
 	ept_controls.enable_rdtscp = 1;
 	ept_controls.enable_invpcid = 1;
 	ept_controls.enable_xsaves = 1;
 	__vmx_vmwrite(VMCS_CTRL_SECONDARY_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
-	              ShvUtilAdjustMsr(VpData->msr_data[11], ept_controls.flags));
+	              ShvUtilAdjustMsr(launch_context->msr_data[11], ept_controls.flags));
 
 	//
 	// Enable no pin-based options ourselves, but there may be some required by
 	// the processor. Use ShvUtilAdjustMsr to add those in.
 	//
 	__vmx_vmwrite(VMCS_CTRL_PIN_BASED_VM_EXECUTION_CONTROLS,
-	              ShvUtilAdjustMsr(VpData->msr_data[13], 0));
+	              ShvUtilAdjustMsr(launch_context->msr_data[13], 0));
 
 	//
 	// In order for our choice of supporting RDTSCP and XSAVE/RESTORES above to
@@ -977,7 +975,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	procbased_ctls_register.use_msr_bitmaps = 1;
 
 	__vmx_vmwrite(VMCS_CTRL_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
-	              ShvUtilAdjustMsr(VpData->msr_data[14],
+	              ShvUtilAdjustMsr(launch_context->msr_data[14],
 	                               procbased_ctls_register.flags));
 
 	//
@@ -986,7 +984,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	ia32_vmx_exit_ctls_register exit_ctls_register{};
 	exit_ctls_register.host_address_space_size = 1;
 	__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS,
-	              ShvUtilAdjustMsr(VpData->msr_data[15],
+	              ShvUtilAdjustMsr(launch_context->msr_data[15],
 	                               exit_ctls_register.flags));
 
 	//
@@ -995,7 +993,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	ia32_vmx_entry_ctls_register entry_ctls_register{};
 	entry_ctls_register.ia32e_mode_guest = 1;
 	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS,
-	              ShvUtilAdjustMsr(VpData->msr_data[16],
+	              ShvUtilAdjustMsr(launch_context->msr_data[16],
 	                               entry_ctls_register.flags));
 
 	//
@@ -1106,7 +1104,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	// because we may be executing in an arbitrary user-mode process right now
 	// as part of the DPC interrupt we execute in.
 	//
-	__vmx_vmwrite(VMCS_HOST_CR3, VpData->system_directory_table_base);
+	__vmx_vmwrite(VMCS_HOST_CR3, launch_context->system_directory_table_base);
 	__vmx_vmwrite(VMCS_GUEST_CR3, state->cr3);
 
 	//
@@ -1150,9 +1148,9 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 	//
 	// Initialize all the VMX-related MSRs by reading their value
 	//
-	for (UINT32 i = 0; i < sizeof(VpData->msr_data) / sizeof(VpData->msr_data[0]); i++)
+	for (UINT32 i = 0; i < sizeof(VpData->launch_context.msr_data) / sizeof(VpData->launch_context.msr_data[0]); i++)
 	{
-		VpData->msr_data[i].QuadPart = __readmsr(IA32_VMX_BASIC + i);
+		VpData->launch_context.msr_data[i].QuadPart = __readmsr(IA32_VMX_BASIC + i);
 	}
 
 	debug_log("[%d] mtrr init\n", thread::get_processor_index());
@@ -1203,10 +1201,10 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	debug_log("[%d] Enabling hypervisor on core %d\n", thread::get_processor_index(), thread::get_processor_index());
 	auto* vm_state = this->get_current_vm_state();
 
-	vm_state->system_directory_table_base = system_directory_table_base;
+	vm_state->launch_context.system_directory_table_base = system_directory_table_base;
 
 	debug_log("[%d] Capturing registers\n", thread::get_processor_index());
-	ShvCaptureSpecialRegisters(&vm_state->special_registers);
+	ShvCaptureSpecialRegisters(&vm_state->launch_context.special_registers);
 
 	//
 	// Then, capture the entire register state. We will need this, as once we
@@ -1217,7 +1215,7 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	// returns here with our registers restored.
 	//
 	debug_log("[%d] Capturing context\n", thread::get_processor_index());
-	RtlCaptureContext(&vm_state->context_frame);
+	RtlCaptureContext(&vm_state->launch_context.context_frame);
 	if ((__readeflags() & EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG) == 0)
 	{
 		//
@@ -1247,26 +1245,43 @@ void hypervisor::allocate_vm_states()
 		throw std::runtime_error("VM states are still in use");
 	}
 
-	const auto core_count = thread::get_processor_count();
-	const auto allocation_size = sizeof(vmx::vm_state) * core_count;
-
-	this->vm_states_ = static_cast<vmx::vm_state*>(memory::allocate_aligned_memory(allocation_size));
+	// As Windows technically supports cpu hot-plugging, keep track of the allocation count
+	this->vm_state_count_ = thread::get_processor_count();
+	this->vm_states_ = new vmx::vm_state*[this->vm_state_count_]{};
 	if (!this->vm_states_)
 	{
-		throw std::runtime_error("Failed to allocate VM states");
+		throw std::runtime_error("Failed to allocate VM states array");
 	}
 
-	RtlSecureZeroMemory(this->vm_states_, allocation_size);
+	for (auto i = 0u; i < this->vm_state_count_; ++i)
+	{
+		this->vm_states_[i] = memory::allocate_aligned_object<vmx::vm_state>();
+		if (!this->vm_states_[i])
+		{
+			throw std::runtime_error("Failed to allocate VM state entries");
+		}
+	}
 }
 
 void hypervisor::free_vm_states()
 {
-	memory::free_aligned_memory(this->vm_states_);
+	for (auto i = 0u; i < this->vm_state_count_ && this->vm_states_; ++i)
+	{
+		memory::free_aligned_memory(this->vm_states_[i]);
+	}
+
+	delete[] this->vm_states_;
 	this->vm_states_ = nullptr;
+	this->vm_state_count_ = 0;
 }
 
 vmx::vm_state* hypervisor::get_current_vm_state() const
 {
 	const auto current_core = thread::get_processor_index();
-	return &this->vm_states_[current_core];
+	if (current_core >= this->vm_state_count_)
+	{
+		return nullptr;
+	}
+
+	return this->vm_states_[current_core];
 }
