@@ -1261,7 +1261,12 @@ void hypervisor::allocate_vm_states()
 
 void hypervisor::free_vm_states()
 {
-	for (auto i = 0u; i < this->vm_state_count_ && this->vm_states_; ++i)
+	if (!this->vm_states_)
+	{
+		return;
+	}
+
+	for (auto i = 0u; i < this->vm_state_count_; ++i)
 	{
 		memory::free_aligned_memory(this->vm_states_[i]);
 	}
