@@ -1,11 +1,5 @@
 #pragma once
 
-#include <ia32.hpp>
-
-#define PML4E_ENTRY_COUNT   512 // EPT_PML4E_ENTRY_COUNT
-#define PDPTE_ENTRY_COUNT   512 // EPT_PDPTE_ENTRY_COUNT
-#define PDE_ENTRY_COUNT     512 // EPT_PDE_ENTRY_COUNT
-
 namespace vmx
 {
 	struct vmcs
@@ -16,29 +10,6 @@ namespace vmx
 	};
 
 	struct epml4e
-	{
-		union
-		{
-			struct
-			{
-				uint64_t read : 1;
-				uint64_t write : 1;
-				uint64_t execute : 1;
-				uint64_t reserved : 5;
-				uint64_t accessed : 1;
-				uint64_t software_use : 1;
-				uint64_t user_mode_execute : 1;
-				uint64_t software_use2 : 1;
-				uint64_t page_frame_number : 36;
-				uint64_t reserved_high : 4;
-				uint64_t software_use_high : 12;
-			};
-
-			uint64_t full;
-		};
-	};
-
-	struct pdpte
 	{
 		union
 		{
@@ -90,11 +61,13 @@ namespace vmx
 		uint64_t physical_address_max;
 	};
 
+#define DECLSPEC_PAGE_ALIGN DECLSPEC_ALIGN(PAGE_SIZE)
+
 	struct vm_state
 	{
 		union
 		{
-			DECLSPEC_ALIGN(PAGE_SIZE) uint8_t stack_buffer[KERNEL_STACK_SIZE]{};
+			DECLSPEC_PAGE_ALIGN uint8_t stack_buffer[KERNEL_STACK_SIZE]{};
 
 			struct
 			{
@@ -111,12 +84,12 @@ namespace vmx
 			};
 		};
 
-		DECLSPEC_ALIGN(PAGE_SIZE) uint8_t msr_bitmap[PAGE_SIZE]{};
-		DECLSPEC_ALIGN(PAGE_SIZE) epml4e epml4[PML4E_ENTRY_COUNT]{};
-		DECLSPEC_ALIGN(PAGE_SIZE) pdpte epdpt[PDPTE_ENTRY_COUNT]{};
-		DECLSPEC_ALIGN(PAGE_SIZE) epde_2mb epde[PDPTE_ENTRY_COUNT][PDE_ENTRY_COUNT]{};
+		DECLSPEC_PAGE_ALIGN uint8_t msr_bitmap[PAGE_SIZE]{};
+		DECLSPEC_PAGE_ALIGN epml4e epml4[EPT_PML4E_ENTRY_COUNT]{};
+		DECLSPEC_PAGE_ALIGN epdpte epdpt[EPT_PDPTE_ENTRY_COUNT]{};
+		DECLSPEC_PAGE_ALIGN epde_2mb epde[EPT_PDPTE_ENTRY_COUNT][EPT_PDE_ENTRY_COUNT]{};
 
-		DECLSPEC_ALIGN(PAGE_SIZE) vmcs vmx_on{};
-		DECLSPEC_ALIGN(PAGE_SIZE) vmcs vmcs{};
+		DECLSPEC_PAGE_ALIGN vmcs vmx_on{};
+		DECLSPEC_PAGE_ALIGN vmcs vmcs{};
 	};
 }

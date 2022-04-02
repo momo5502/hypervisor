@@ -99,16 +99,19 @@ void hypervisor::enable()
 {
 	const auto cr3 = __readcr3();
 
-	bool success = true;
+	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]()
 	{
-		success &= this->try_enable_core(cr3);
-	}, true);
+		if(!this->try_enable_core(cr3))
+		{
+			InterlockedIncrement(&failures);
+		}
+	});
 
-	if (!success)
+	if (failures)
 	{
 		this->disable();
-		//throw std::runtime_error("Hypervisor initialization failed");
+		throw std::runtime_error("Hypervisor initialization failed");
 	}
 }
 
@@ -277,9 +280,6 @@ ShvVmxMtrrAdjustEffectiveMemoryType(
 
 void ShvVmxEptInitialize(vmx::vm_state* VpData)
 {
-	UINT32 i, j;
-	vmx::pdpte tempEpdpte;
-
 	//
 	// Fill out the EPML4E which covers the first 512GB of RAM
 	//
@@ -292,14 +292,17 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 	//
 	// Fill out a RWX PDPTE
 	//
-	tempEpdpte.full = 0;
-	tempEpdpte.read = tempEpdpte.write = tempEpdpte.execute = 1;
+	epdpte temp_epdpte;
+	temp_epdpte.flags = 0;
+	temp_epdpte.read_access = 1;
+	temp_epdpte.write_access = 1;
+	temp_epdpte.execute_access = 1;
 
 	//
 	// Construct EPT identity map for every 1GB of RAM
 	//
-	__stosq((UINT64*)VpData->epdpt, tempEpdpte.full, PDPTE_ENTRY_COUNT);
-	for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
+	__stosq((UINT64*)VpData->epdpt, temp_epdpte.flags, EPT_PDPTE_ENTRY_COUNT);
+	for (auto i = 0; i < EPT_PDPTE_ENTRY_COUNT; i++)
 	{
 		//
 		// Set the page frame number of the PDE table
@@ -320,13 +323,13 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 	//
 	// Loop every 1GB of RAM (described by the PDPTE)
 	//
-	__stosq((UINT64*)VpData->epde, temp_epde.flags, PDPTE_ENTRY_COUNT * PDE_ENTRY_COUNT);
-	for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
+	__stosq((UINT64*)VpData->epde, temp_epde.flags, EPT_PDPTE_ENTRY_COUNT * EPT_PDE_ENTRY_COUNT);
+	for (auto i = 0; i < EPT_PDPTE_ENTRY_COUNT; i++)
 	{
 		//
 		// Construct EPT identity map for every 2MB of RAM
 		//
-		for (j = 0; j < PDE_ENTRY_COUNT; j++)
+		for (auto j = 0; j < EPT_PDE_ENTRY_COUNT; j++)
 		{
 			VpData->epde[i][j].page_frame_number = (i * 512) + j;
 			VpData->epde[i][j].memory_type = ShvVmxMtrrAdjustEffectiveMemoryType(VpData,
