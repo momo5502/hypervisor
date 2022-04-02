@@ -279,7 +279,6 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 {
 	UINT32 i, j;
 	vmx::pdpte tempEpdpte;
-	vmx::large_pde tempEpde;
 
 	//
 	// Fill out the EPML4E which covers the first 512GB of RAM
@@ -311,14 +310,17 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 	//
 	// Fill out a RWX Large PDE
 	//
-	tempEpde.full = 0;
-	tempEpde.read = tempEpde.write = tempEpde.execute = 1;
-	tempEpde.large = 1;
+	epde_2mb temp_epde;
+	temp_epde.flags = 0;
+	temp_epde.read_access = 1;
+	temp_epde.write_access = 1;
+	temp_epde.execute_access = 1;
+	temp_epde.large_page = 1;
 
 	//
 	// Loop every 1GB of RAM (described by the PDPTE)
 	//
-	__stosq((UINT64*)VpData->epde, tempEpde.full, PDPTE_ENTRY_COUNT * PDE_ENTRY_COUNT);
+	__stosq((UINT64*)VpData->epde, temp_epde.flags, PDPTE_ENTRY_COUNT * PDE_ENTRY_COUNT);
 	for (i = 0; i < PDPTE_ENTRY_COUNT; i++)
 	{
 		//
@@ -327,9 +329,9 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 		for (j = 0; j < PDE_ENTRY_COUNT; j++)
 		{
 			VpData->epde[i][j].page_frame_number = (i * 512) + j;
-			VpData->epde[i][j].type = ShvVmxMtrrAdjustEffectiveMemoryType(VpData,
-			                                                              VpData->epde[i][j].page_frame_number * _2MB,
-			                                                              MEMORY_TYPE_WRITE_BACK);
+			VpData->epde[i][j].memory_type = ShvVmxMtrrAdjustEffectiveMemoryType(VpData,
+				VpData->epde[i][j].page_frame_number * _2MB,
+				MEMORY_TYPE_WRITE_BACK);
 		}
 	}
 }
