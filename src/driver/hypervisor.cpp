@@ -103,7 +103,7 @@ void hypervisor::enable()
 	thread::dispatch_on_all_cores([&]()
 	{
 		success &= this->try_enable_core(cr3);
-	});
+	}, true);
 
 	if (!success)
 	{
@@ -112,11 +112,11 @@ void hypervisor::enable()
 	}
 }
 
-bool hypervisor::try_enable_core(const uint64_t cr3)
+bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
 {
 	try
 	{
-		this->enable_core(cr3);
+		this->enable_core(system_directory_table_base);
 		return true;
 	}
 	catch (std::exception& e)
@@ -635,6 +635,7 @@ VOID
 ShvVpRestoreAfterLaunch(
 	VOID)
 {
+	debug_log("[%d] restore\n", thread::get_processor_index());
 	//
 	// Get the per-processor data. This routine temporarily executes on the
 	// same stack as the hypervisor (using no real stack space except the home
@@ -1220,16 +1221,22 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 		VpData->msr_data[i].QuadPart = __readmsr(IA32_VMX_BASIC + i);
 	}
 
+	debug_log("[%d] mtrr init\n", thread::get_processor_index());
+
 	//
 	// Initialize all the MTRR-related MSRs by reading their value and build
 	// range structures to describe their settings
 	//
 	ShvVmxMtrrInitialize(VpData);
 
+	debug_log("[%d] ept init\n", thread::get_processor_index());
+
 	//
 	// Initialize the EPT structures
 	//
 	ShvVmxEptInitialize(VpData);
+
+	debug_log("[%d] entering root mode\n", thread::get_processor_index());
 
 	//
 	// Attempt to enter VMX root mode on this processor.
@@ -1238,6 +1245,8 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 	{
 		throw std::runtime_error("Not available");
 	}
+
+	debug_log("[%d] setting up vmcs\n", thread::get_processor_index());
 
 	//
 	// Initialize the VMCS, both guest and host state.
@@ -1250,16 +1259,19 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 	// processor to jump to ShvVpRestoreAfterLaunch on success, or return
 	// back to the caller on failure.
 	//
+	debug_log("[%d] vmx launch\n", thread::get_processor_index());
 	return ShvVmxLaunch();
 }
 
 
 void hypervisor::enable_core(const uint64_t system_directory_table_base)
 {
+	debug_log("[%d] Enabling hypervisor on core %d\n", thread::get_processor_index(), thread::get_processor_index());
 	auto* vm_state = this->get_current_vm_state();
 
 	vm_state->system_directory_table_base = system_directory_table_base;
 
+	debug_log("[%d] Capturing registers\n", thread::get_processor_index());
 	ShvCaptureSpecialRegisters(&vm_state->special_registers);
 
 	//
@@ -1270,6 +1282,7 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	// By using RtlRestoreContext, that function sets the AC flag in EFLAGS and
 	// returns here with our registers restored.
 	//
+	debug_log("[%d] Capturing context\n", thread::get_processor_index());
 	RtlCaptureContext(&vm_state->context_frame);
 	if ((__readeflags() & EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG) == 0)
 	{
@@ -1277,6 +1290,7 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 		// If the AC bit is not set in EFLAGS, it means that we have not yet
 		// launched the VM. Attempt to initialize VMX on this processor.
 		//
+		debug_log("[%d] Launching\n", thread::get_processor_index());
 		ShvVmxLaunchOnVp(vm_state);
 	}
 
