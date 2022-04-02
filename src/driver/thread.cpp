@@ -13,17 +13,11 @@ namespace thread
 			void* data{};
 		};
 
-
-		_Function_class_(KDEFERRED_ROUTINE)
-
-		void NTAPI callback_dispatcher(struct _KDPC* /*Dpc*/,
-		                               const PVOID param,
-		                               const PVOID arg1,
-		                               const PVOID arg2)
+		void dispatch_callback(const void* context)
 		{
 			try
 			{
-				const auto* const data = static_cast<dispatch_data*>(param);
+				const auto* const data = static_cast<const dispatch_data*>(context);
 				data->callback(data->data);
 			}
 			catch (std::exception& e)
@@ -34,6 +28,17 @@ namespace thread
 			{
 				debug_log("Unknown exception during dpc on core %d\n", get_processor_index());
 			}
+		}
+
+
+		_Function_class_(KDEFERRED_ROUTINE)
+
+		void NTAPI callback_dispatcher(struct _KDPC* /*Dpc*/,
+		                               const PVOID param,
+		                               const PVOID arg1,
+		                               const PVOID arg2)
+		{
+			dispatch_callback(param);
 
 			KeSignalCallDpcSynchronize(arg2);
 			KeSignalCallDpcDone(arg1);
@@ -51,19 +56,7 @@ namespace thread
 			{
 				if (i == current_cpu)
 				{
-					try
-					{
-						const auto* const data = static_cast<dispatch_data*>(param);
-						data->callback(data->data);
-					}
-					catch (std::exception& e)
-					{
-						debug_log("Exception during dpc on core %d: %s\n", get_processor_index(), e.what());
-					}
-					catch (...)
-					{
-						debug_log("Unknown exception during dpc on core %d\n", get_processor_index());
-					}
+					dispatch_callback(param);
 				}
 
 				KeSignalCallDpcSynchronize(arg2);

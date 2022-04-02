@@ -102,7 +102,7 @@ void hypervisor::enable()
 	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]()
 	{
-		if(!this->try_enable_core(cr3))
+		if (!this->try_enable_core(cr3))
 		{
 			InterlockedIncrement(&failures);
 		}
@@ -126,7 +126,8 @@ bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
 	{
 		debug_log("Failed to enable hypervisor on core %d: %s\n", thread::get_processor_index(), e.what());
 		return false;
-	}catch (...)
+	}
+	catch (...)
 	{
 		debug_log("Failed to enable hypervisor on core %d.\n", thread::get_processor_index());
 		return false;
@@ -192,7 +193,6 @@ ShvVmxLaunch(
 
 VOID ShvVmxMtrrInitialize(vmx::vm_state* VpData)
 {
-	UINT32 i;
 	ia32_mtrr_capabilities_register mtrrCapabilities;
 	ia32_mtrr_physbase_register mtrrBase;
 	ia32_mtrr_physmask_register mtrrMask;
@@ -206,7 +206,7 @@ VOID ShvVmxMtrrInitialize(vmx::vm_state* VpData)
 	//
 	// Iterate over each variable MTRR
 	//
-	for (i = 0; i < mtrrCapabilities.variable_range_count; i++)
+	for (auto i = 0u; i < mtrrCapabilities.variable_range_count; i++)
 	{
 		//
 		// Capture the value
@@ -245,12 +245,10 @@ ShvVmxMtrrAdjustEffectiveMemoryType(
 	_In_ UINT32 CandidateMemoryType
 )
 {
-	UINT32 i;
-
 	//
 	// Loop each MTRR range
 	//
-	for (i = 0; i < sizeof(VpData->mtrr_data) / sizeof(VpData->mtrr_data[0]); i++)
+	for (auto i = 0u; i < sizeof(VpData->mtrr_data) / sizeof(VpData->mtrr_data[0]); i++)
 	{
 		//
 		// Check if it's active
@@ -283,9 +281,9 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 	//
 	// Fill out the EPML4E which covers the first 512GB of RAM
 	//
-	VpData->epml4[0].read = 1;
-	VpData->epml4[0].write = 1;
-	VpData->epml4[0].execute = 1;
+	VpData->epml4[0].read_access = 1;
+	VpData->epml4[0].write_access = 1;
+	VpData->epml4[0].execute_access = 1;
 	VpData->epml4[0].page_frame_number = memory::get_physical_address(&VpData->epdpt) /
 		PAGE_SIZE;
 
@@ -453,91 +451,10 @@ ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
 	return TRUE;
 }
 
-typedef struct _VMX_GDTENTRY64
-{
-	UINT64 Base;
-	UINT32 Limit;
-
-	union
-	{
-		struct
-		{
-			UINT8 Flags1;
-			UINT8 Flags2;
-			UINT8 Flags3;
-			UINT8 Flags4;
-		} Bytes;
-
-		struct
-		{
-			UINT16 SegmentType : 4;
-			UINT16 DescriptorType : 1;
-			UINT16 Dpl : 2;
-			UINT16 Present : 1;
-
-			UINT16 Reserved : 4;
-			UINT16 System : 1;
-			UINT16 LongMode : 1;
-			UINT16 DefaultBig : 1;
-			UINT16 Granularity : 1;
-
-			UINT16 Unusable : 1;
-			UINT16 Reserved2 : 15;
-		} Bits;
-
-		UINT32 AccessRights;
-	};
-
-	UINT16 Selector;
-} VMX_GDTENTRY64, *PVMX_GDTENTRY64;
-
-
-typedef union _KGDTENTRY64
-{
-	struct
-	{
-		UINT16 LimitLow;
-		UINT16 BaseLow;
-
-		union
-		{
-			struct
-			{
-				UINT8 BaseMiddle;
-				UINT8 Flags1;
-				UINT8 Flags2;
-				UINT8 BaseHigh;
-			} Bytes;
-
-			struct
-			{
-				UINT32 BaseMiddle : 8;
-				UINT32 Type : 5;
-				UINT32 Dpl : 2;
-				UINT32 Present : 1;
-				UINT32 LimitHigh : 4;
-				UINT32 System : 1;
-				UINT32 LongMode : 1;
-				UINT32 DefaultBig : 1;
-				UINT32 Granularity : 1;
-				UINT32 BaseHigh : 8;
-			} Bits;
-		};
-
-		UINT32 BaseUpper;
-		UINT32 MustBeZero;
-	};
-
-	struct
-	{
-		INT64 DataLow;
-		INT64 DataHigh;
-	};
-} KGDTENTRY64, *PKGDTENTRY64;
 
 VOID
 ShvUtilConvertGdtEntry(
-	_In_ VOID* GdtBase,
+	_In_ uint64_t GdtBase,
 	_In_ UINT16 Selector,
 	_Out_ PVMX_GDTENTRY64 VmxGdtEntry
 )
@@ -560,7 +477,7 @@ ShvUtilConvertGdtEntry(
 	//
 	// Read the GDT entry at the given selector, masking out the RPL bits.
 	//
-	gdtEntry = (PKGDTENTRY64)((uintptr_t)GdtBase + (Selector & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK));
+	gdtEntry = (PKGDTENTRY64)(GdtBase + (Selector & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK));
 
 	//
 	// Write the selector directly 
@@ -1072,7 +989,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the CS Segment (Ring 0 Code)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegCs, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegCs, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1082,7 +999,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the SS Segment (Ring 0 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegSs, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegSs, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1092,7 +1009,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the DS Segment (Ring 3 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegDs, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegDs, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_DS_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_DS_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_DS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1102,7 +1019,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the ES Segment (Ring 3 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegEs, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegEs, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_ES_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_ES_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_ES_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1112,7 +1029,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the FS Segment (Ring 3 Compatibility-Mode TEB)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegFs, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegFs, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_FS_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_FS_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_FS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1123,7 +1040,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the GS Segment (Ring 3 Data if in Compatibility-Mode, MSR-based in Long Mode)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, context->SegGs, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegGs, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_GS_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_GS_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_GS_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1134,7 +1051,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the Task Register (Ring 0 TSS)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, state->tr, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->tr, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_TR_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_TR_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_TR_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1145,7 +1062,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the Local Descriptor Table (Ring 0 LDT on Redstone)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base, state->ldtr, &vmxGdtEntry);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->ldtr, &vmxGdtEntry);
 	__vmx_vmwrite(VMCS_GUEST_LDTR_SELECTOR, vmxGdtEntry.Selector);
 	__vmx_vmwrite(VMCS_GUEST_LDTR_LIMIT, vmxGdtEntry.Limit);
 	__vmx_vmwrite(VMCS_GUEST_LDTR_ACCESS_RIGHTS, vmxGdtEntry.AccessRights);
@@ -1154,16 +1071,16 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Now load the GDT itself
 	//
-	__vmx_vmwrite(VMCS_GUEST_GDTR_BASE, (uintptr_t)state->gdtr.base);
+	__vmx_vmwrite(VMCS_GUEST_GDTR_BASE, state->gdtr.base_address);
 	__vmx_vmwrite(VMCS_GUEST_GDTR_LIMIT, state->gdtr.limit);
-	__vmx_vmwrite(VMCS_HOST_GDTR_BASE, (uintptr_t)state->gdtr.base);
+	__vmx_vmwrite(VMCS_HOST_GDTR_BASE, state->gdtr.base_address);
 
 	//
 	// And then the IDT
 	//
-	__vmx_vmwrite(VMCS_GUEST_IDTR_BASE, (uintptr_t)state->idtr.base);
+	__vmx_vmwrite(VMCS_GUEST_IDTR_BASE, state->idtr.base_address);
 	__vmx_vmwrite(VMCS_GUEST_IDTR_LIMIT, state->idtr.limit);
-	__vmx_vmwrite(VMCS_HOST_IDTR_BASE, (uintptr_t)state->idtr.base);
+	__vmx_vmwrite(VMCS_HOST_IDTR_BASE, state->idtr.base_address);
 
 	//
 	// Load CR0

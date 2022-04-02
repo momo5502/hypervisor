@@ -9,36 +9,6 @@ namespace vmx
 		uint8_t data[PAGE_SIZE - 8];
 	};
 
-	struct epml4e
-	{
-		union
-		{
-			struct
-			{
-				uint64_t read : 1;
-				uint64_t write : 1;
-				uint64_t execute : 1;
-				uint64_t reserved : 5;
-				uint64_t accessed : 1;
-				uint64_t software_use : 1;
-				uint64_t user_mode_execute : 1;
-				uint64_t software_use2 : 1;
-				uint64_t page_frame_number : 36;
-				uint64_t reserved_high : 4;
-				uint64_t software_use_high : 12;
-			};
-
-			uint64_t full;
-		};
-	};
-
-	struct kdescriptor
-	{
-		uint16_t pad[3];
-		uint16_t limit;
-		void* base;
-	};
-
 	struct special_registers
 	{
 		uint64_t cr0;
@@ -49,8 +19,8 @@ namespace vmx
 		uint16_t ldtr;
 		uint64_t debug_control;
 		uint64_t kernel_dr7;
-		kdescriptor idtr;
-		kdescriptor gdtr;
+		segment_descriptor_register_64 idtr;
+		segment_descriptor_register_64 gdtr;
 	};
 
 	struct mtrr_range
@@ -85,7 +55,7 @@ namespace vmx
 		};
 
 		DECLSPEC_PAGE_ALIGN uint8_t msr_bitmap[PAGE_SIZE]{};
-		DECLSPEC_PAGE_ALIGN epml4e epml4[EPT_PML4E_ENTRY_COUNT]{};
+		DECLSPEC_PAGE_ALIGN ept_pml4 epml4[EPT_PML4E_ENTRY_COUNT]{};
 		DECLSPEC_PAGE_ALIGN epdpte epdpt[EPT_PDPTE_ENTRY_COUNT]{};
 		DECLSPEC_PAGE_ALIGN epde_2mb epde[EPT_PDPTE_ENTRY_COUNT][EPT_PDE_ENTRY_COUNT]{};
 
@@ -93,3 +63,86 @@ namespace vmx
 		DECLSPEC_PAGE_ALIGN vmcs vmcs{};
 	};
 }
+
+
+typedef struct _VMX_GDTENTRY64
+{
+	UINT64 Base;
+	UINT32 Limit;
+
+	union
+	{
+		struct
+		{
+			UINT8 Flags1;
+			UINT8 Flags2;
+			UINT8 Flags3;
+			UINT8 Flags4;
+		} Bytes;
+
+		struct
+		{
+			UINT16 SegmentType : 4;
+			UINT16 DescriptorType : 1;
+			UINT16 Dpl : 2;
+			UINT16 Present : 1;
+
+			UINT16 Reserved : 4;
+			UINT16 System : 1;
+			UINT16 LongMode : 1;
+			UINT16 DefaultBig : 1;
+			UINT16 Granularity : 1;
+
+			UINT16 Unusable : 1;
+			UINT16 Reserved2 : 15;
+		} Bits;
+
+		UINT32 AccessRights;
+	};
+
+	UINT16 Selector;
+} VMX_GDTENTRY64, *PVMX_GDTENTRY64;
+
+
+typedef union _KGDTENTRY64
+{
+	struct
+	{
+		UINT16 LimitLow;
+		UINT16 BaseLow;
+
+		union
+		{
+			struct
+			{
+				UINT8 BaseMiddle;
+				UINT8 Flags1;
+				UINT8 Flags2;
+				UINT8 BaseHigh;
+			} Bytes;
+
+			struct
+			{
+				UINT32 BaseMiddle : 8;
+				UINT32 Type : 5;
+				UINT32 Dpl : 2;
+				UINT32 Present : 1;
+				UINT32 LimitHigh : 4;
+				UINT32 System : 1;
+				UINT32 LongMode : 1;
+				UINT32 DefaultBig : 1;
+				UINT32 Granularity : 1;
+				UINT32 BaseHigh : 8;
+			} Bits;
+		};
+
+		UINT32 BaseUpper;
+		UINT32 MustBeZero;
+	};
+
+	struct
+	{
+		INT64 DataLow;
+		INT64 DataHigh;
+	};
+} KGDTENTRY64, *PKGDTENTRY64;
