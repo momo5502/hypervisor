@@ -36,17 +36,20 @@ namespace
 		return is_vmx_supported() && is_vmx_available();
 	}
 
+#define HYPERV_HYPERVISOR_PRESENT_BIT           0x80000000
+#define HYPERV_CPUID_INTERFACE                  0x40000001
+
 	bool is_hypervisor_present()
 	{
 		cpuid_eax_01 data{};
 		__cpuid(reinterpret_cast<int*>(&data), CPUID_VERSION_INFORMATION);
-		if ((data.cpuid_feature_information_ecx.flags & 0x80000000) == 0)
+		if ((data.cpuid_feature_information_ecx.flags & HYPERV_HYPERVISOR_PRESENT_BIT) == 0)
 		{
 			return false;
 		}
 
 		int32_t cpuid_data[4] = {0};
-		__cpuid(cpuid_data, 0x40000001);
+		__cpuid(cpuid_data, HYPERV_CPUID_INTERFACE);
 		return cpuid_data[0] == 'momo';
 	}
 }
@@ -608,6 +611,361 @@ ShvUtilAdjustMsr(
 	return DesiredValue;
 }
 
+extern "C" VOID
+ShvOsCaptureContext(
+	_In_ PCONTEXT ContextRecord
+)
+{
+	//
+	// Windows provides a nice OS function to do this
+	//
+	RtlCaptureContext(ContextRecord);
+}
+
+extern "C" DECLSPEC_NORETURN
+VOID
+__cdecl
+ShvOsRestoreContext2(
+	_In_ PCONTEXT ContextRecord,
+	_In_opt_ struct _EXCEPTION_RECORD* ExceptionRecord
+);
+
+DECLSPEC_NORETURN
+VOID
+ShvVpRestoreAfterLaunch(
+	VOID)
+{
+	//
+	// Get the per-processor data. This routine temporarily executes on the
+	// same stack as the hypervisor (using no real stack space except the home
+	// registers), so we can retrieve the VP the same way the hypervisor does.
+	//
+	auto* vpData = (vmx::vm_state*)((uintptr_t)_AddressOfReturnAddress() +
+		sizeof(CONTEXT) -
+		KERNEL_STACK_SIZE);
+
+	//
+	// Record that VMX is now enabled by returning back to ShvVpInitialize with
+	// the Alignment Check (AC) bit set.
+	//
+	vpData->context_frame.EFlags |= EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG;
+
+	//
+	// And finally, restore the context, so that all register and stack
+	// state is finally restored.
+	//
+	ShvOsRestoreContext2(&vpData->context_frame, nullptr);
+}
+
+
+VOID
+ShvVmxHandleInvd(
+	VOID)
+{
+	//
+	// This is the handler for the INVD instruction. Technically it may be more
+	// correct to use __invd instead of __wbinvd, but that intrinsic doesn't
+	// actually exist. Additionally, the Windows kernel (or HAL) don't contain
+	// any example of INVD actually ever being used. Finally, Hyper-V itself
+	// handles INVD by issuing WBINVD as well, so we'll just do that here too.
+	//
+	__wbinvd();
+}
+
+#define DPL_USER                3
+#define DPL_SYSTEM              0
+
+typedef struct _SHV_VP_STATE
+{
+	PCONTEXT VpRegs;
+	uintptr_t GuestRip;
+	uintptr_t GuestRsp;
+	uintptr_t GuestEFlags;
+	UINT16 ExitReason;
+	UINT8 ExitVm;
+} SHV_VP_STATE, *PSHV_VP_STATE;
+
+VOID
+ShvVmxHandleCpuid(
+	_In_ PSHV_VP_STATE VpState
+)
+{
+	INT32 cpu_info[4];
+
+	//
+	// Check for the magic CPUID sequence, and check that it is coming from
+	// Ring 0. Technically we could also check the RIP and see if this falls
+	// in the expected function, but we may want to allow a separate "unload"
+	// driver or code at some point.
+	//
+	if ((VpState->VpRegs->Rax == 0x41414141) &&
+		(VpState->VpRegs->Rcx == 0x42424242) &&
+		((ShvVmxRead(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM))
+	{
+		VpState->ExitVm = TRUE;
+		return;
+	}
+
+	//
+	// Otherwise, issue the CPUID to the logical processor based on the indexes
+	// on the VP's GPRs.
+	//
+	__cpuidex(cpu_info, (INT32)VpState->VpRegs->Rax, (INT32)VpState->VpRegs->Rcx);
+
+	//
+	// Check if this was CPUID 1h, which is the features request.
+	//
+	if (VpState->VpRegs->Rax == 1)
+	{
+		//
+		// Set the Hypervisor Present-bit in RCX, which Intel and AMD have both
+		// reserved for this indication.
+		//
+		cpu_info[2] |= HYPERV_HYPERVISOR_PRESENT_BIT;
+	}
+	else if (VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE)
+	{
+		//
+		// Return our interface identifier
+		//
+		cpu_info[0] = 'momo';
+	}
+
+	//
+	// Copy the values from the logical processor registers into the VP GPRs.
+	//
+	VpState->VpRegs->Rax = cpu_info[0];
+	VpState->VpRegs->Rbx = cpu_info[1];
+	VpState->VpRegs->Rcx = cpu_info[2];
+	VpState->VpRegs->Rdx = cpu_info[3];
+}
+
+VOID
+ShvVmxHandleXsetbv(
+	_In_ PSHV_VP_STATE VpState
+)
+{
+	//
+	// Simply issue the XSETBV instruction on the native logical processor.
+	//
+
+	_xsetbv((UINT32)VpState->VpRegs->Rcx,
+	        VpState->VpRegs->Rdx << 32 |
+	        VpState->VpRegs->Rax);
+}
+
+VOID
+ShvVmxHandleVmx(
+	_In_ PSHV_VP_STATE VpState
+)
+{
+	//
+	// Set the CF flag, which is how VMX instructions indicate failure
+	//
+	VpState->GuestEFlags |= 0x1; // VM_FAIL_INVALID
+
+	//
+	// RFLAGs is actually restored from the VMCS, so update it here
+	//
+	__vmx_vmwrite(VMCS_GUEST_RFLAGS, VpState->GuestEFlags);
+}
+
+VOID
+ShvVmxHandleExit(
+	_In_ PSHV_VP_STATE VpState
+)
+{
+	//
+	// This is the generic VM-Exit handler. Decode the reason for the exit and
+	// call the appropriate handler. As per Intel specifications, given that we
+	// have requested no optional exits whatsoever, we should only see CPUID,
+	// INVD, XSETBV and other VMX instructions. GETSEC cannot happen as we do
+	// not run in SMX context.
+	//
+	switch (VpState->ExitReason)
+	{
+	case VMX_EXIT_REASON_EXECUTE_CPUID:
+		ShvVmxHandleCpuid(VpState);
+		break;
+	case VMX_EXIT_REASON_EXECUTE_INVD:
+		ShvVmxHandleInvd();
+		break;
+	case VMX_EXIT_REASON_EXECUTE_XSETBV:
+		ShvVmxHandleXsetbv(VpState);
+		break;
+	case VMX_EXIT_REASON_EXECUTE_VMCALL:
+	case VMX_EXIT_REASON_EXECUTE_VMCLEAR:
+	case VMX_EXIT_REASON_EXECUTE_VMLAUNCH:
+	case VMX_EXIT_REASON_EXECUTE_VMPTRLD:
+	case VMX_EXIT_REASON_EXECUTE_VMPTRST:
+	case VMX_EXIT_REASON_EXECUTE_VMREAD:
+	case VMX_EXIT_REASON_EXECUTE_VMRESUME:
+	case VMX_EXIT_REASON_EXECUTE_VMWRITE:
+	case VMX_EXIT_REASON_EXECUTE_VMXOFF:
+	case VMX_EXIT_REASON_EXECUTE_VMXON:
+		ShvVmxHandleVmx(VpState);
+		break;
+	default:
+		break;
+	}
+
+	//
+	// Move the instruction pointer to the next instruction after the one that
+	// caused the exit. Since we are not doing any special handling or changing
+	// of execution, this can be done for any exit reason.
+	//
+	VpState->GuestRip += ShvVmxRead(VMCS_VMEXIT_INSTRUCTION_LENGTH);
+	__vmx_vmwrite(VMCS_GUEST_RIP, VpState->GuestRip);
+}
+
+VOID
+ShvOsUnprepareProcessor(
+	_In_ vmx::vm_state* VpData
+)
+{
+	//
+	// When running in VMX root mode, the processor will set limits of the
+	// GDT and IDT to 0xFFFF (notice that there are no Host VMCS fields to
+	// set these values). This causes problems with PatchGuard, which will
+	// believe that the GDTR and IDTR have been modified by malware, and
+	// eventually crash the system. Since we know what the original state
+	// of the GDTR and IDTR was, simply restore it now.
+	//
+	__lgdt(&VpData->special_registers.gdtr.limit);
+	__lidt(&VpData->special_registers.idtr.limit);
+}
+
+DECLSPEC_NORETURN
+VOID
+ShvVmxResume()
+{
+	//
+	// Issue a VMXRESUME. The reason that we've defined an entire function for
+	// this sole instruction is both so that we can use it as the target of the
+	// VMCS when re-entering the VM After a VM-Exit, as well as so that we can
+	// decorate it with the DECLSPEC_NORETURN marker, which is not set on the
+	// intrinsic (as it can fail in case of an error).
+	//
+	__vmx_vmresume();
+}
+
+extern "C" DECLSPEC_NORETURN
+VOID
+ShvVmxEntryHandler()
+{
+	PCONTEXT Context = (PCONTEXT)_AddressOfReturnAddress();
+	SHV_VP_STATE guestContext;
+
+	//
+	// Because we had to use RCX when calling ShvOsCaptureContext, its value
+	// was actually pushed on the stack right before the call. Go dig into the
+	// stack to find it, and overwrite the bogus value that's there now.
+	//
+	//Context->Rcx = *(UINT64*)((uintptr_t)Context - sizeof(Context->Rcx));
+
+	//
+	// Get the per-VP data for this processor.
+	//
+	auto* vpData = (vmx::vm_state*)((uintptr_t)(Context + 1) - KERNEL_STACK_SIZE);
+
+	//
+	// Build a little stack context to make it easier to keep track of certain
+	// guest state, such as the RIP/RSP/RFLAGS, and the exit reason. The rest
+	// of the general purpose registers come from the context structure that we
+	// captured on our own with RtlCaptureContext in the assembly entrypoint.
+	//
+	guestContext.GuestEFlags = ShvVmxRead(VMCS_GUEST_RFLAGS);
+	guestContext.GuestRip = ShvVmxRead(VMCS_GUEST_RIP);
+	guestContext.GuestRsp = ShvVmxRead(VMCS_GUEST_RSP);
+	guestContext.ExitReason = ShvVmxRead(VMCS_EXIT_REASON) & 0xFFFF;
+	guestContext.VpRegs = Context;
+	guestContext.ExitVm = FALSE;
+
+	//
+	// Call the generic handler
+	//
+	ShvVmxHandleExit(&guestContext);
+
+	//
+	// Did we hit the magic exit sequence, or should we resume back to the VM
+	// context?
+	//
+	if (guestContext.ExitVm != FALSE)
+	{
+		//
+		// Return the VP Data structure in RAX:RBX which is going to be part of
+		// the CPUID response that the caller (ShvVpUninitialize) expects back.
+		// Return confirmation in RCX that we are loaded
+		//
+		Context->Rax = (uintptr_t)vpData >> 32;
+		Context->Rbx = (uintptr_t)vpData & 0xFFFFFFFF;
+		Context->Rcx = 0x43434343;
+
+		//
+		// Perform any OS-specific CPU uninitialization work
+		//
+		ShvOsUnprepareProcessor(vpData);
+
+		//
+		// Our callback routine may have interrupted an arbitrary user process,
+		// and therefore not a thread running with a systemwide page directory.
+		// Therefore if we return back to the original caller after turning off
+		// VMX, it will keep our current "host" CR3 value which we set on entry
+		// to the PML4 of the SYSTEM process. We want to return back with the
+		// correct value of the "guest" CR3, so that the currently executing
+		// process continues to run with its expected address space mappings.
+		//
+		__writecr3(ShvVmxRead(VMCS_GUEST_CR3));
+
+		//
+		// Finally, restore the stack, instruction pointer and EFLAGS to the
+		// original values present when the instruction causing our VM-Exit
+		// execute (such as ShvVpUninitialize). This will effectively act as
+		// a longjmp back to that location.
+		//
+		Context->Rsp = guestContext.GuestRsp;
+		Context->Rip = (UINT64)guestContext.GuestRip;
+		Context->EFlags = (UINT32)guestContext.GuestEFlags;
+
+		//
+		// Turn off VMX root mode on this logical processor. We're done here.
+		//
+		__vmx_off();
+	}
+	else
+	{
+		//
+		// Because we won't be returning back into assembly code, nothing will
+		// ever know about the "pop rcx" that must technically be done (or more
+		// accurately "add rsp, 4" as rcx will already be correct thanks to the
+		// fixup earlier. In order to keep the stack sane, do that adjustment
+		// here.
+		//
+		//Context->Rsp += sizeof(Context->Rcx);
+
+		//
+		// Return into a VMXRESUME intrinsic, which we broke out as its own
+		// function, in order to allow this to work. No assembly code will be
+		// needed as RtlRestoreContext will fix all the GPRs, and what we just
+		// did to RSP will take care of the rest.
+		//
+		Context->Rip = (UINT64)ShvVmxResume;
+	}
+
+	//
+	// Restore the context to either ShvVmxResume, in which case the CPU's VMX
+	// facility will do the "true" return back to the VM (but without restoring
+	// GPRs, which is why we must do it here), or to the original guest's RIP,
+	// which we use in case an exit was requested. In this case VMX must now be
+	// off, and this will look like a longjmp to the original stack and RIP.
+	//
+	ShvOsRestoreContext2(Context, nullptr);
+}
+
+
+extern "C" VOID
+ShvVmxEntry(
+	VOID);
 
 void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 {
