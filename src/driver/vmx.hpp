@@ -41,7 +41,7 @@ namespace vmx
 
 	struct vm_launch_context
 	{
-		struct special_registers special_registers;
+		special_registers special_registers;
 		CONTEXT context_frame;
 		uint64_t system_directory_table_base;
 		LARGE_INTEGER msr_data[17];

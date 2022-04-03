@@ -17,6 +17,8 @@ public:
 	void enable();
 	void disable();
 
+	bool is_enabled() const;
+
 private:
 	uint32_t vm_state_count_{0};
 	vmx::vm_state** vm_states_{nullptr};

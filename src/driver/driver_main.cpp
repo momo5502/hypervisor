@@ -37,21 +37,23 @@ public:
 	}
 
 private:
+	bool hypervisor_was_enabled_{false};
+	hypervisor hypervisor_{};
 	sleep_callback sleep_callback_{};
 	irp irp_{};
-	hypervisor hypervisor_{};
 
 	void sleep_notification(const sleep_callback::type type)
 	{
 		if (type == sleep_callback::type::sleep)
 		{
-			debug_log("Going to sleep!");
+			debug_log("Going to sleep...\n");
+			this->hypervisor_was_enabled_ = this->hypervisor_.is_enabled();
 			this->hypervisor_.disable();
 		}
 
-		if (type == sleep_callback::type::wakeup)
+		if (type == sleep_callback::type::wakeup && this->hypervisor_was_enabled_)
 		{
-			debug_log("Waking up!");
+			debug_log("Waking up...\n");
 			this->hypervisor_.enable();
 		}
 	}

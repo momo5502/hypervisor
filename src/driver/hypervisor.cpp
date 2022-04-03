@@ -44,6 +44,38 @@ namespace
 		__cpuid(cpuid_data, HYPERV_CPUID_INTERFACE);
 		return cpuid_data[0] == 'momo';
 	}
+
+	void cpature_special_registers(vmx::special_registers& special_registers)
+	{
+		special_registers.cr0 = __readcr0();
+		special_registers.cr3 = __readcr3();
+		special_registers.cr4 = __readcr4();
+		special_registers.debug_control = __readmsr(IA32_DEBUGCTL);
+		special_registers.msr_gs_base = __readmsr(IA32_GS_BASE);
+		special_registers.kernel_dr7 = __readdr(7);
+		_sgdt(&special_registers.gdtr.limit);
+		__sidt(&special_registers.idtr.limit);
+		_str(&special_registers.tr);
+		_sldt(&special_registers.ldtr);
+	}
+
+	void capture_cpu_context(vmx::vm_launch_context& launch_context)
+	{
+		cpature_special_registers(launch_context.special_registers);
+		RtlCaptureContext(&launch_context.context_frame);
+	}
+
+
+	void restore_descriptor_tables(vmx::vm_launch_context& launch_context)
+	{
+		__lgdt(&launch_context.special_registers.gdtr.limit);
+		__lidt(&launch_context.special_registers.idtr.limit);
+	}
+
+	[[ noreturn ]] void resume_vmx()
+	{
+		__vmx_vmresume();
+	}
 }
 
 hypervisor::hypervisor()
@@ -85,6 +117,13 @@ void hypervisor::disable()
 	{
 		this->disable_core();
 	});
+
+	debug_log("Hypervisor disabled on all cores\n");
+}
+
+bool hypervisor::is_enabled() const
+{
+	return is_hypervisor_present();
 }
 
 void hypervisor::enable()
@@ -105,6 +144,8 @@ void hypervisor::enable()
 		this->disable();
 		throw std::runtime_error("Hypervisor initialization failed");
 	}
+
+	debug_log("Hypervisor enabled on %d cores\n", this->vm_state_count_);
 }
 
 bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
@@ -124,20 +165,6 @@ bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
 		debug_log("Failed to enable hypervisor on core %d.\n", thread::get_processor_index());
 		return false;
 	}
-}
-
-void ShvCaptureSpecialRegisters(vmx::special_registers* special_registers)
-{
-	special_registers->cr0 = __readcr0();
-	special_registers->cr3 = __readcr3();
-	special_registers->cr4 = __readcr4();
-	special_registers->debug_control = __readmsr(IA32_DEBUGCTL);
-	special_registers->msr_gs_base = __readmsr(IA32_GS_BASE);
-	special_registers->kernel_dr7 = __readdr(7);
-	_sgdt(&special_registers->gdtr.limit);
-	__sidt(&special_registers->idtr.limit);
-	_str(&special_registers->tr);
-	_sldt(&special_registers->ldtr);
 }
 
 uintptr_t
@@ -566,15 +593,12 @@ VOID
 ShvVpRestoreAfterLaunch(
 	VOID)
 {
-	debug_log("[%d] restore\n", thread::get_processor_index());
 	//
 	// Get the per-processor data. This routine temporarily executes on the
 	// same stack as the hypervisor (using no real stack space except the home
 	// registers), so we can retrieve the VP the same way the hypervisor does.
 	//
-	auto* vpData = (vmx::vm_state*)((uintptr_t)_AddressOfReturnAddress() +
-		sizeof(CONTEXT) -
-		KERNEL_STACK_SIZE);
+	auto* vpData = (vmx::vm_state*)((uintptr_t)_AddressOfReturnAddress() + sizeof(CONTEXT) - KERNEL_STACK_SIZE);
 
 	//
 	// Record that VMX is now enabled by returning back to ShvVpInitialize with
@@ -750,37 +774,6 @@ ShvVmxHandleExit(
 	__vmx_vmwrite(VMCS_GUEST_RIP, VpState->GuestRip);
 }
 
-VOID
-ShvOsUnprepareProcessor(
-	_In_ vmx::vm_state* VpData
-)
-{
-	//
-	// When running in VMX root mode, the processor will set limits of the
-	// GDT and IDT to 0xFFFF (notice that there are no Host VMCS fields to
-	// set these values). This causes problems with PatchGuard, which will
-	// believe that the GDTR and IDTR have been modified by malware, and
-	// eventually crash the system. Since we know what the original state
-	// of the GDTR and IDTR was, simply restore it now.
-	//
-	__lgdt(&VpData->launch_context.special_registers.gdtr.limit);
-	__lidt(&VpData->launch_context.special_registers.idtr.limit);
-}
-
-DECLSPEC_NORETURN
-VOID
-ShvVmxResume()
-{
-	//
-	// Issue a VMXRESUME. The reason that we've defined an entire function for
-	// this sole instruction is both so that we can use it as the target of the
-	// VMCS when re-entering the VM After a VM-Exit, as well as so that we can
-	// decorate it with the DECLSPEC_NORETURN marker, which is not set on the
-	// intrinsic (as it can fail in case of an error).
-	//
-	__vmx_vmresume();
-}
-
 extern "C" DECLSPEC_NORETURN
 VOID
 ShvVmxEntryHandler()
@@ -836,7 +829,7 @@ ShvVmxEntryHandler()
 		//
 		// Perform any OS-specific CPU uninitialization work
 		//
-		ShvOsUnprepareProcessor(vpData);
+		restore_descriptor_tables(vpData->launch_context);
 
 		//
 		// Our callback routine may have interrupted an arbitrary user process,
@@ -867,21 +860,12 @@ ShvVmxEntryHandler()
 	else
 	{
 		//
-		// Because we won't be returning back into assembly code, nothing will
-		// ever know about the "pop rcx" that must technically be done (or more
-		// accurately "add rsp, 4" as rcx will already be correct thanks to the
-		// fixup earlier. In order to keep the stack sane, do that adjustment
-		// here.
-		//
-		//Context->Rsp += sizeof(Context->Rcx);
-
-		//
 		// Return into a VMXRESUME intrinsic, which we broke out as its own
 		// function, in order to allow this to work. No assembly code will be
 		// needed as RtlRestoreContext will fix all the GPRs, and what we just
 		// did to RSP will take care of the rest.
 		//
-		Context->Rip = (UINT64)ShvVmxResume;
+		Context->Rip = reinterpret_cast<uint64_t>(resume_vmx);
 	}
 
 	//
@@ -1153,22 +1137,16 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 		VpData->launch_context.msr_data[i].QuadPart = __readmsr(IA32_VMX_BASIC + i);
 	}
 
-	debug_log("[%d] mtrr init\n", thread::get_processor_index());
-
 	//
 	// Initialize all the MTRR-related MSRs by reading their value and build
 	// range structures to describe their settings
 	//
 	ShvVmxMtrrInitialize(VpData);
 
-	debug_log("[%d] ept init\n", thread::get_processor_index());
-
 	//
 	// Initialize the EPT structures
 	//
 	ShvVmxEptInitialize(VpData);
-
-	debug_log("[%d] entering root mode\n", thread::get_processor_index());
 
 	//
 	// Attempt to enter VMX root mode on this processor.
@@ -1177,8 +1155,6 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 	{
 		throw std::runtime_error("Not available");
 	}
-
-	debug_log("[%d] setting up vmcs\n", thread::get_processor_index());
 
 	//
 	// Initialize the VMCS, both guest and host state.
@@ -1191,38 +1167,20 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 	// processor to jump to ShvVpRestoreAfterLaunch on success, or return
 	// back to the caller on failure.
 	//
-	debug_log("[%d] vmx launch\n", thread::get_processor_index());
 	return ShvVmxLaunch();
 }
 
 
 void hypervisor::enable_core(const uint64_t system_directory_table_base)
 {
-	debug_log("[%d] Enabling hypervisor on core %d\n", thread::get_processor_index(), thread::get_processor_index());
+	debug_log("Enabling hypervisor on core %d\n", thread::get_processor_index(), thread::get_processor_index());
 	auto* vm_state = this->get_current_vm_state();
 
 	vm_state->launch_context.system_directory_table_base = system_directory_table_base;
 
-	debug_log("[%d] Capturing registers\n", thread::get_processor_index());
-	ShvCaptureSpecialRegisters(&vm_state->launch_context.special_registers);
-
-	//
-	// Then, capture the entire register state. We will need this, as once we
-	// launch the VM, it will begin execution at the defined guest instruction
-	// pointer, which we set to ShvVpRestoreAfterLaunch, with the registers set
-	// to whatever value they were deep inside the VMCS/VMX initialization code.
-	// By using RtlRestoreContext, that function sets the AC flag in EFLAGS and
-	// returns here with our registers restored.
-	//
-	debug_log("[%d] Capturing context\n", thread::get_processor_index());
-	RtlCaptureContext(&vm_state->launch_context.context_frame);
+	capture_cpu_context(vm_state->launch_context);
 	if ((__readeflags() & EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG) == 0)
 	{
-		//
-		// If the AC bit is not set in EFLAGS, it means that we have not yet
-		// launched the VM. Attempt to initialize VMX on this processor.
-		//
-		debug_log("[%d] Launching\n", thread::get_processor_index());
 		ShvVmxLaunchOnVp(vm_state);
 	}
 
@@ -1234,8 +1192,16 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 
 void hypervisor::disable_core()
 {
+	debug_log("Disabling hypervisor on core %d\n", thread::get_processor_index());
+
 	int32_t cpu_info[4]{0};
 	__cpuidex(cpu_info, 0x41414141, 0x42424242);
+
+	if (this->is_enabled())
+	{
+		debug_log("Shutdown for core %d failed. Issuing kernel panic!\n", thread::get_processor_index());
+		KeBugCheckEx(DRIVER_VIOLATION, 1, 0, 0, 0);
+	}
 }
 
 void hypervisor::allocate_vm_states()
@@ -1245,7 +1211,8 @@ void hypervisor::allocate_vm_states()
 		throw std::runtime_error("VM states are still in use");
 	}
 
-	// As Windows technically supports cpu hot-plugging, keep track of the allocation count
+	// As Windows technically supports cpu hot-plugging, keep track of the allocation count.
+	// However virtualizing the hot-plugged cpu won't be supported here.
 	this->vm_state_count_ = thread::get_processor_count();
 	this->vm_states_ = new vmx::vm_state*[this->vm_state_count_]{};
 
