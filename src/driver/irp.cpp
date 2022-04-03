@@ -40,8 +40,10 @@ namespace
 		const auto aligned_address = address & (PAGE_SIZE - 1);
 		const auto offset = address - aligned_address;
 
-		uint8_t buffer[PAGE_SIZE * 2]{0};
-		memory::query_process_physical_page(request->process_id, reinterpret_cast<void*>(address), buffer);
+		debug_log("Original: %s\n", request->target_address);
+
+		static uint8_t buffer[PAGE_SIZE * 2]{0};
+		memory::query_process_physical_page(request->process_id, reinterpret_cast<void*>(aligned_address), buffer);
 
 		debug_log("Data: %s\n", buffer + offset);
 	}
