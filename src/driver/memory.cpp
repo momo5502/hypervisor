@@ -1,6 +1,7 @@
 #include "std_include.hpp"
 #include "memory.hpp"
 #include "string.hpp"
+#include "process.hpp"
 
 namespace memory
 {
@@ -102,5 +103,16 @@ namespace memory
 		{
 			ExFreePool(memory);
 		}
+	}
+
+	uint64_t query_process_physical_page(const uint32_t process_id, void* address,
+	                                             uint8_t buffer[PAGE_SIZE])
+	{
+		const auto process_handle = process::find_process_by_id(process_id);
+
+		process::scoped_process_attacher attacher{process_handle};
+
+		memcpy(buffer, address, PAGE_SIZE);
+		return get_physical_address(address);
 	}
 }

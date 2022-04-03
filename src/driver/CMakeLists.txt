@@ -26,4 +26,5 @@ add_custom_command(TARGET driver
 target_link_libraries(driver
     vcrtl_driver
     ia32_doc
+    shared
 )

@@ -4,6 +4,8 @@
 extern "C" {
 #endif
 
+// ----------------------------------------
+
 NTKERNELAPI
 _IRQL_requires_max_(APC_LEVEL)
 _IRQL_requires_min_(PASSIVE_LEVEL)
@@ -14,6 +16,7 @@ KeGenericCallDpc(
 	_In_opt_ PVOID Context
 );
 
+// ----------------------------------------
 
 NTKERNELAPI
 _IRQL_requires_(DISPATCH_LEVEL)
@@ -23,6 +26,8 @@ KeSignalCallDpcDone(
 	_In_ PVOID SystemArgument1
 );
 
+// ----------------------------------------
+
 NTKERNELAPI
 _IRQL_requires_(DISPATCH_LEVEL)
 _IRQL_requires_same_
@@ -30,6 +35,8 @@ LOGICAL
 KeSignalCallDpcSynchronize(
 	_In_ PVOID SystemArgument2
 );
+
+// ----------------------------------------
 
 #if (NTDDI_VERSION < NTDDI_WIN8)
 _Must_inspect_result_
@@ -46,11 +53,67 @@ MmAllocateContiguousNodeMemory(
 );
 #endif
 
+// ----------------------------------------
+
 NTSYSAPI
 VOID
 NTAPI
 RtlCaptureContext(
 	_Out_ PCONTEXT ContextRecord
+);
+
+// ----------------------------------------
+
+typedef struct _KAPC_STATE
+{
+	LIST_ENTRY ApcListHead[MaximumMode];
+	struct _KPROCESS* Process;
+	BOOLEAN KernelApcInProgress;
+	BOOLEAN KernelApcPending;
+	BOOLEAN UserApcPending;
+} KAPC_STATE, *PKAPC_STATE, *PRKAPC_STATE;
+
+// ----------------------------------------
+
+NTKERNELAPI
+VOID
+KeStackAttachProcess(
+	__inout PEPROCESS PROCESS,
+	__out PRKAPC_STATE ApcState
+);
+
+// ----------------------------------------
+
+NTKERNELAPI
+VOID
+KeUnstackDetachProcess(
+	__in PRKAPC_STATE ApcState
+);
+
+// ----------------------------------------
+
+NTKERNELAPI
+NTSTATUS
+PsLookupProcessByProcessId(
+	IN HANDLE ProcessId,
+	OUT PEPROCESS* Process
+);
+
+// ----------------------------------------
+
+NTKERNELAPI
+PVOID
+PsGetProcessSectionBaseAddress(
+	__in PEPROCESS Process
+);
+
+// ----------------------------------------
+
+NTKERNELAPI
+PPEB
+NTAPI
+PsGetProcessPeb(
+	IN PEPROCESS Process
 );
 
 #ifdef __cplusplus

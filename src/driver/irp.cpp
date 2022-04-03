@@ -3,8 +3,9 @@
 #include "logging.hpp"
 #include "exception.hpp"
 #include "string.hpp"
+#include "memory.hpp"
 
-#define HELLO_DRV_IOCTL CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_NEITHER, FILE_ANY_ACCESS)
+#include <irp_data.hpp>
 
 namespace
 {
@@ -32,6 +33,19 @@ namespace
 		return STATUS_SUCCESS;
 	}
 
+	// TODO: This is vulnerable as fuck. Optimize!
+	void apply_hook(hook_request* request)
+	{
+		const auto address = reinterpret_cast<uint64_t>(request->target_address);
+		const auto aligned_address = address & (PAGE_SIZE - 1);
+		const auto offset = address - aligned_address;
+
+		uint8_t buffer[PAGE_SIZE * 2]{0};
+		memory::query_process_physical_page(request->process_id, reinterpret_cast<void*>(address), buffer);
+
+		debug_log("Data: %s\n", buffer + offset);
+	}
+
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(
 		PDEVICE_OBJECT /*device_object*/, const PIRP irp)
 	{
@@ -50,6 +64,9 @@ namespace
 			{
 			case HELLO_DRV_IOCTL:
 				debug_log("Hello from the Driver!\n");
+				break;
+			case HOOK_DRV_IOCTL:
+				apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
 				break;
 			default:
 				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);

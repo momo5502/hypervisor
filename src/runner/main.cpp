@@ -3,9 +3,9 @@
 #include "driver.hpp"
 #include "driver_device.hpp"
 
-#pragma comment(lib, "Shlwapi.lib")
+#include <irp_data.hpp>
 
-#define HELLO_DRV_IOCTL CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_NEITHER, FILE_ANY_ACCESS)
+#pragma comment(lib, "Shlwapi.lib")
 
 BOOL send_ioctl(HANDLE device, DWORD ioctl_code)
 {
@@ -53,6 +53,17 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	(void)driver_device.send(HELLO_DRV_IOCTL, input);
 
 	MessageBoxA(0, "Service started!", 0, 0);
+
+	hook_request hook_request{};
+	hook_request.process_id = GetCurrentProcessId();
+	hook_request.target_address = "My Message!";
+
+	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
+	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
+
+	(void)driver_device.send(HOOK_DRV_IOCTL, input);
+
+	MessageBoxA(0, "Press ok to exit!", 0, 0);
 }
 
 int main(const int argc, char* argv[])
@@ -69,7 +80,7 @@ int main(const int argc, char* argv[])
 	}
 	catch (...)
 	{
-		printf("An unknown error occurd!\n");
+		printf("An unknown error occured!\n");
 		return 1;
 	}
 }

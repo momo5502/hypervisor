@@ -27,4 +27,6 @@ namespace memory
 
 	_IRQL_requires_max_(DISPATCH_LEVEL)
 	void free_non_paged_memory(void* memory);
+
+	uint64_t query_process_physical_page(uint32_t process_id, void* address, uint8_t buffer[PAGE_SIZE]);
 }
