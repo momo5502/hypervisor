@@ -72,9 +72,42 @@ namespace
 		__lidt(&launch_context.special_registers.idtr.limit);
 	}
 
+	vmx::vm_state* resolve_vm_state_from_context(CONTEXT& context)
+	{
+		auto* context_address = reinterpret_cast<uint8_t*>(&context);
+		auto* vm_state_address = context_address + sizeof(CONTEXT) - KERNEL_STACK_SIZE;
+		return reinterpret_cast<vmx::vm_state*>(vm_state_address);
+	}
+
+	uintptr_t read_vmx(const uint32_t vmcs_field_id)
+	{
+		size_t data{};
+		__vmx_vmread(vmcs_field_id, &data);
+		return data;
+	}
+
 	[[ noreturn ]] void resume_vmx()
 	{
 		__vmx_vmresume();
+	}
+
+	int32_t launch_vmx()
+	{
+		__vmx_vmlaunch();
+
+		const auto error_code = static_cast<int32_t>(read_vmx(VMCS_VM_INSTRUCTION_ERROR));
+		__vmx_off();
+
+		return error_code;
+	}
+
+	[[ noreturn ]] void restore_post_launch()
+	{
+		auto* context = static_cast<CONTEXT*>(_AddressOfReturnAddress());
+		auto* vm_state = resolve_vm_state_from_context(*context);
+
+		vm_state->launch_context.context_frame.EFlags |= EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG;
+		restore_context(&vm_state->launch_context.context_frame);
 	}
 }
 
@@ -165,46 +198,6 @@ bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
 		debug_log("Failed to enable hypervisor on core %d.\n", thread::get_processor_index());
 		return false;
 	}
-}
-
-uintptr_t
-FORCEINLINE
-ShvVmxRead(
-	_In_ UINT32 VmcsFieldId
-)
-{
-	size_t FieldData;
-
-	//
-	// Because VMXREAD returns an error code, and not the data, it is painful
-	// to use in most circumstances. This simple function simplifies it use.
-	//
-	__vmx_vmread(VmcsFieldId, &FieldData);
-	return FieldData;
-}
-
-INT32
-ShvVmxLaunch(
-	VOID)
-{
-	INT32 failureCode;
-
-	//
-	// Launch the VMCS
-	//
-	__vmx_vmlaunch();
-
-	//
-	// If we got here, either VMCS setup failed in some way, or the launch
-	// did not proceed as planned.
-	//
-	failureCode = (INT32)ShvVmxRead(VMCS_VM_INSTRUCTION_ERROR);
-	__vmx_off();
-
-	//
-	// Return the error back to the caller
-	//
-	return failureCode;
 }
 
 #define MTRR_PAGE_SIZE          4096
@@ -569,51 +562,6 @@ ShvUtilAdjustMsr(
 	return DesiredValue;
 }
 
-extern "C" VOID
-ShvOsCaptureContext(
-	_In_ PCONTEXT ContextRecord
-)
-{
-	//
-	// Windows provides a nice OS function to do this
-	//
-	RtlCaptureContext(ContextRecord);
-}
-
-extern "C" DECLSPEC_NORETURN
-VOID
-__cdecl
-ShvOsRestoreContext2(
-	_In_ PCONTEXT ContextRecord,
-	_In_opt_ struct _EXCEPTION_RECORD* ExceptionRecord
-);
-
-DECLSPEC_NORETURN
-VOID
-ShvVpRestoreAfterLaunch(
-	VOID)
-{
-	//
-	// Get the per-processor data. This routine temporarily executes on the
-	// same stack as the hypervisor (using no real stack space except the home
-	// registers), so we can retrieve the VP the same way the hypervisor does.
-	//
-	auto* vpData = (vmx::vm_state*)((uintptr_t)_AddressOfReturnAddress() + sizeof(CONTEXT) - KERNEL_STACK_SIZE);
-
-	//
-	// Record that VMX is now enabled by returning back to ShvVpInitialize with
-	// the Alignment Check (AC) bit set.
-	//
-	vpData->launch_context.context_frame.EFlags |= EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG;
-
-	//
-	// And finally, restore the context, so that all register and stack
-	// state is finally restored.
-	//
-	ShvOsRestoreContext2(&vpData->launch_context.context_frame, nullptr);
-}
-
-
 VOID
 ShvVmxHandleInvd(
 	VOID)
@@ -656,7 +604,7 @@ ShvVmxHandleCpuid(
 	//
 	if ((VpState->VpRegs->Rax == 0x41414141) &&
 		(VpState->VpRegs->Rcx == 0x42424242) &&
-		((ShvVmxRead(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM))
+		((read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM))
 	{
 		VpState->ExitVm = TRUE;
 		return;
@@ -770,7 +718,7 @@ ShvVmxHandleExit(
 	// caused the exit. Since we are not doing any special handling or changing
 	// of execution, this can be done for any exit reason.
 	//
-	VpState->GuestRip += ShvVmxRead(VMCS_VMEXIT_INSTRUCTION_LENGTH);
+	VpState->GuestRip += read_vmx(VMCS_VMEXIT_INSTRUCTION_LENGTH);
 	__vmx_vmwrite(VMCS_GUEST_RIP, VpState->GuestRip);
 }
 
@@ -799,10 +747,10 @@ ShvVmxEntryHandler()
 	// of the general purpose registers come from the context structure that we
 	// captured on our own with RtlCaptureContext in the assembly entrypoint.
 	//
-	guestContext.GuestEFlags = ShvVmxRead(VMCS_GUEST_RFLAGS);
-	guestContext.GuestRip = ShvVmxRead(VMCS_GUEST_RIP);
-	guestContext.GuestRsp = ShvVmxRead(VMCS_GUEST_RSP);
-	guestContext.ExitReason = ShvVmxRead(VMCS_EXIT_REASON) & 0xFFFF;
+	guestContext.GuestEFlags = read_vmx(VMCS_GUEST_RFLAGS);
+	guestContext.GuestRip = read_vmx(VMCS_GUEST_RIP);
+	guestContext.GuestRsp = read_vmx(VMCS_GUEST_RSP);
+	guestContext.ExitReason = read_vmx(VMCS_EXIT_REASON) & 0xFFFF;
 	guestContext.VpRegs = Context;
 	guestContext.ExitVm = FALSE;
 
@@ -840,7 +788,7 @@ ShvVmxEntryHandler()
 		// correct value of the "guest" CR3, so that the currently executing
 		// process continues to run with its expected address space mappings.
 		//
-		__writecr3(ShvVmxRead(VMCS_GUEST_CR3));
+		__writecr3(read_vmx(VMCS_GUEST_CR3));
 
 		//
 		// Finally, restore the stack, instruction pointer and EFLAGS to the
@@ -875,7 +823,7 @@ ShvVmxEntryHandler()
 	// which we use in case an exit was requested. In this case VMX must now be
 	// off, and this will look like a longjmp to the original stack and RIP.
 	//
-	ShvOsRestoreContext2(Context, nullptr);
+	restore_context(Context);
 }
 
 
@@ -887,9 +835,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 {
 	auto* launch_context = &VpData->launch_context;
 	auto* state = &launch_context->special_registers;
-	PCONTEXT context = &launch_context->context_frame;
-	vmx_gdt_entry vmxGdtEntry;
-	ept_pointer vmxEptp;
+	auto* context = &launch_context->context_frame;
 
 	//
 	// Begin by setting the link pointer to the required value for 4KB VMCS.
@@ -901,22 +847,13 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	if (launch_context->ept_controls.flags != 0)
 	{
-		//
-		// Configure the EPTP
-		//
-		vmxEptp.flags = 0;
-		vmxEptp.page_walk_length = 3;
-		vmxEptp.memory_type = MEMORY_TYPE_WRITE_BACK;
-		vmxEptp.page_frame_number = launch_context->ept_pml4_physical_address / PAGE_SIZE;
+		ept_pointer vmx_eptp{};
+		vmx_eptp.flags = 0;
+		vmx_eptp.page_walk_length = 3;
+		vmx_eptp.memory_type = MEMORY_TYPE_WRITE_BACK;
+		vmx_eptp.page_frame_number = launch_context->ept_pml4_physical_address / PAGE_SIZE;
 
-		//
-		// Load EPT Root Pointer
-		//
-		__vmx_vmwrite(VMCS_CTRL_EPT_POINTER, vmxEptp.flags);
-
-		//
-		// Set VPID to one
-		//
+		__vmx_vmwrite(VMCS_CTRL_EPT_POINTER, vmx_eptp.flags);
 		__vmx_vmwrite(VMCS_CTRL_VIRTUAL_PROCESSOR_IDENTIFIER, 1);
 	}
 
@@ -983,61 +920,62 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the CS Segment (Ring 0 Code)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegCs, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_CS_BASE, vmxGdtEntry.base);
+	vmx_gdt_entry vmx_gdt_entry{};
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegCs, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_CS_BASE, vmx_gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_CS_SELECTOR, context->SegCs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the SS Segment (Ring 0 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegSs, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_SS_BASE, vmxGdtEntry.base);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegSs, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_SS_BASE, vmx_gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_SS_SELECTOR, context->SegSs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the DS Segment (Ring 3 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegDs, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_DS_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_DS_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_DS_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_DS_BASE, vmxGdtEntry.base);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegDs, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_DS_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_DS_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_DS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_DS_BASE, vmx_gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_DS_SELECTOR, context->SegDs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the ES Segment (Ring 3 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegEs, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_ES_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_ES_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_ES_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_ES_BASE, vmxGdtEntry.base);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegEs, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_ES_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_ES_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_ES_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_ES_BASE, vmx_gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_ES_SELECTOR, context->SegEs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the FS Segment (Ring 3 Compatibility-Mode TEB)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegFs, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_FS_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_FS_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_FS_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_FS_BASE, vmxGdtEntry.base);
-	__vmx_vmwrite(VMCS_HOST_FS_BASE, vmxGdtEntry.base);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegFs, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_FS_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_FS_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_FS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_FS_BASE, vmx_gdt_entry.base);
+	__vmx_vmwrite(VMCS_HOST_FS_BASE, vmx_gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_FS_SELECTOR, context->SegFs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the GS Segment (Ring 3 Data if in Compatibility-Mode, MSR-based in Long Mode)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegGs, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_GS_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_GS_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_GS_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegGs, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_GS_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_GS_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_GS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
 	__vmx_vmwrite(VMCS_GUEST_GS_BASE, state->msr_gs_base);
 	__vmx_vmwrite(VMCS_HOST_GS_BASE, state->msr_gs_base);
 	__vmx_vmwrite(VMCS_HOST_GS_SELECTOR, context->SegGs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
@@ -1045,22 +983,22 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the Task Register (Ring 0 TSS)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->tr, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_TR_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_TR_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_TR_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_TR_BASE, vmxGdtEntry.base);
-	__vmx_vmwrite(VMCS_HOST_TR_BASE, vmxGdtEntry.base);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->tr, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_TR_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_TR_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_TR_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_TR_BASE, vmx_gdt_entry.base);
+	__vmx_vmwrite(VMCS_HOST_TR_BASE, vmx_gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_TR_SELECTOR, state->tr & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the Local Descriptor Table (Ring 0 LDT on Redstone)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->ldtr, &vmxGdtEntry);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_SELECTOR, vmxGdtEntry.selector);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_LIMIT, vmxGdtEntry.limit);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_ACCESS_RIGHTS, vmxGdtEntry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_BASE, vmxGdtEntry.base);
+	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->ldtr, &vmx_gdt_entry);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_SELECTOR, vmx_gdt_entry.selector);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_LIMIT, vmx_gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_BASE, vmx_gdt_entry.base);
 
 	//
 	// Now load the GDT itself
@@ -1110,7 +1048,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	// to inside of ShvVpInitialize.
 	//
 	__vmx_vmwrite(VMCS_GUEST_RSP, (uintptr_t)VpData->stack_buffer + KERNEL_STACK_SIZE - sizeof(CONTEXT));
-	__vmx_vmwrite(VMCS_GUEST_RIP, (uintptr_t)ShvVpRestoreAfterLaunch);
+	__vmx_vmwrite(VMCS_GUEST_RIP, reinterpret_cast<size_t>(restore_post_launch));
 	__vmx_vmwrite(VMCS_GUEST_RFLAGS, context->EFlags);
 
 	//
@@ -1167,7 +1105,8 @@ INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
 	// processor to jump to ShvVpRestoreAfterLaunch on success, or return
 	// back to the caller on failure.
 	//
-	return ShvVmxLaunch();
+	auto error_code = launch_vmx();
+	throw std::runtime_error("Failed to launch vmx");
 }
 
 
