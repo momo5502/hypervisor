@@ -59,24 +59,24 @@ namespace
 		_sldt(&special_registers.ldtr);
 	}
 
-	void capture_cpu_context(vmx::vm_launch_context& launch_context)
+	void capture_cpu_context(vmx::launch_context& launch_context)
 	{
 		cpature_special_registers(launch_context.special_registers);
 		RtlCaptureContext(&launch_context.context_frame);
 	}
 
 
-	void restore_descriptor_tables(vmx::vm_launch_context& launch_context)
+	void restore_descriptor_tables(vmx::launch_context& launch_context)
 	{
 		__lgdt(&launch_context.special_registers.gdtr.limit);
 		__lidt(&launch_context.special_registers.idtr.limit);
 	}
 
-	vmx::vm_state* resolve_vm_state_from_context(CONTEXT& context)
+	vmx::state* resolve_vm_state_from_context(CONTEXT& context)
 	{
 		auto* context_address = reinterpret_cast<uint8_t*>(&context);
 		auto* vm_state_address = context_address + sizeof(CONTEXT) - KERNEL_STACK_SIZE;
-		return reinterpret_cast<vmx::vm_state*>(vm_state_address);
+		return reinterpret_cast<vmx::state*>(vm_state_address);
 	}
 
 	uintptr_t read_vmx(const uint32_t vmcs_field_id)
@@ -101,9 +101,8 @@ namespace
 		return error_code;
 	}
 
-	[[ noreturn ]] void restore_post_launch()
+	extern "C" [[ noreturn ]] void vm_launch_handler(CONTEXT* context)
 	{
-		auto* context = static_cast<CONTEXT*>(_AddressOfReturnAddress());
 		auto* vm_state = resolve_vm_state_from_context(*context);
 
 		vm_state->launch_context.context_frame.EFlags |= EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG;
@@ -203,7 +202,7 @@ bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
 #define MTRR_PAGE_SIZE          4096
 #define MTRR_PAGE_MASK          (~(MTRR_PAGE_SIZE-1))
 
-VOID ShvVmxMtrrInitialize(vmx::vm_state* VpData)
+VOID ShvVmxMtrrInitialize(vmx::state* VpData)
 {
 	ia32_mtrr_capabilities_register mtrrCapabilities;
 	ia32_mtrr_physbase_register mtrrBase;
@@ -254,7 +253,7 @@ VOID ShvVmxMtrrInitialize(vmx::vm_state* VpData)
 
 UINT32
 ShvVmxMtrrAdjustEffectiveMemoryType(
-	vmx::vm_state* VpData,
+	vmx::state* VpData,
 	_In_ UINT64 LargePageAddress,
 	_In_ UINT32 CandidateMemoryType
 )
@@ -292,7 +291,7 @@ ShvVmxMtrrAdjustEffectiveMemoryType(
 	return CandidateMemoryType;
 }
 
-void ShvVmxEptInitialize(vmx::vm_state* VpData)
+void ShvVmxEptInitialize(vmx::state* VpData)
 {
 	//
 	// Fill out the EPML4E which covers the first 512GB of RAM
@@ -355,7 +354,7 @@ void ShvVmxEptInitialize(vmx::vm_state* VpData)
 
 
 UINT8
-ShvVmxEnterRootModeOnVp(vmx::vm_state* VpData)
+ShvVmxEnterRootModeOnVp(vmx::state* VpData)
 {
 	auto* launch_context = &VpData->launch_context;
 	auto* Registers = &launch_context->special_registers;
@@ -473,7 +472,7 @@ VOID
 ShvUtilConvertGdtEntry(
 	_In_ uint64_t GdtBase,
 	_In_ UINT16 Selector,
-	_Out_ vmx_gdt_entry* VmxGdtEntry
+	_Out_ vmx::gdt_entry* VmxGdtEntry
 )
 {
 	//
@@ -562,9 +561,7 @@ ShvUtilAdjustMsr(
 	return DesiredValue;
 }
 
-VOID
-ShvVmxHandleInvd(
-	VOID)
+void vmx_handle_invd()
 {
 	//
 	// This is the handler for the INVD instruction. Technically it may be more
@@ -579,20 +576,7 @@ ShvVmxHandleInvd(
 #define DPL_USER                3
 #define DPL_SYSTEM              0
 
-typedef struct _SHV_VP_STATE
-{
-	PCONTEXT VpRegs;
-	uintptr_t GuestRip;
-	uintptr_t GuestRsp;
-	uintptr_t GuestEFlags;
-	UINT16 ExitReason;
-	UINT8 ExitVm;
-} SHV_VP_STATE, *PSHV_VP_STATE;
-
-VOID
-ShvVmxHandleCpuid(
-	_In_ PSHV_VP_STATE VpState
-)
+void vmx_handle_cpuid(vmx::guest_context& guest_context)
 {
 	INT32 cpu_info[4];
 
@@ -602,11 +586,11 @@ ShvVmxHandleCpuid(
 	// in the expected function, but we may want to allow a separate "unload"
 	// driver or code at some point.
 	//
-	if ((VpState->VpRegs->Rax == 0x41414141) &&
-		(VpState->VpRegs->Rcx == 0x42424242) &&
+	if ((guest_context.vp_regs->Rax == 0x41414141) &&
+		(guest_context.vp_regs->Rcx == 0x42424242) &&
 		((read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM))
 	{
-		VpState->ExitVm = TRUE;
+		guest_context.exit_vm = true;
 		return;
 	}
 
@@ -614,12 +598,12 @@ ShvVmxHandleCpuid(
 	// Otherwise, issue the CPUID to the logical processor based on the indexes
 	// on the VP's GPRs.
 	//
-	__cpuidex(cpu_info, (INT32)VpState->VpRegs->Rax, (INT32)VpState->VpRegs->Rcx);
+	__cpuidex(cpu_info, (INT32)guest_context.vp_regs->Rax, (INT32)guest_context.vp_regs->Rcx);
 
 	//
 	// Check if this was CPUID 1h, which is the features request.
 	//
-	if (VpState->VpRegs->Rax == 1)
+	if (guest_context.vp_regs->Rax == 1)
 	{
 		//
 		// Set the Hypervisor Present-bit in RCX, which Intel and AMD have both
@@ -627,7 +611,7 @@ ShvVmxHandleCpuid(
 		//
 		cpu_info[2] |= HYPERV_HYPERVISOR_PRESENT_BIT;
 	}
-	else if (VpState->VpRegs->Rax == HYPERV_CPUID_INTERFACE)
+	else if (guest_context.vp_regs->Rax == HYPERV_CPUID_INTERFACE)
 	{
 		//
 		// Return our interface identifier
@@ -638,46 +622,36 @@ ShvVmxHandleCpuid(
 	//
 	// Copy the values from the logical processor registers into the VP GPRs.
 	//
-	VpState->VpRegs->Rax = cpu_info[0];
-	VpState->VpRegs->Rbx = cpu_info[1];
-	VpState->VpRegs->Rcx = cpu_info[2];
-	VpState->VpRegs->Rdx = cpu_info[3];
+	guest_context.vp_regs->Rax = cpu_info[0];
+	guest_context.vp_regs->Rbx = cpu_info[1];
+	guest_context.vp_regs->Rcx = cpu_info[2];
+	guest_context.vp_regs->Rdx = cpu_info[3];
 }
 
-VOID
-ShvVmxHandleXsetbv(
-	_In_ PSHV_VP_STATE VpState
-)
+void vmx_handle_xsetbv(const vmx::guest_context& guest_contex)
 {
 	//
 	// Simply issue the XSETBV instruction on the native logical processor.
 	//
 
-	_xsetbv((UINT32)VpState->VpRegs->Rcx,
-	        VpState->VpRegs->Rdx << 32 |
-	        VpState->VpRegs->Rax);
+	_xsetbv(static_cast<uint32_t>(guest_contex.vp_regs->Rcx),
+	        guest_contex.vp_regs->Rdx << 32 | guest_contex.vp_regs->Rax);
 }
 
-VOID
-ShvVmxHandleVmx(
-	_In_ PSHV_VP_STATE VpState
-)
+void vmx_handle_vmx(vmx::guest_context& guest_contex)
 {
 	//
 	// Set the CF flag, which is how VMX instructions indicate failure
 	//
-	VpState->GuestEFlags |= 0x1; // VM_FAIL_INVALID
+	guest_contex.guest_e_flags |= 0x1; // VM_FAIL_INVALID
 
 	//
 	// RFLAGs is actually restored from the VMCS, so update it here
 	//
-	__vmx_vmwrite(VMCS_GUEST_RFLAGS, VpState->GuestEFlags);
+	__vmx_vmwrite(VMCS_GUEST_RFLAGS, guest_contex.guest_e_flags);
 }
 
-VOID
-ShvVmxHandleExit(
-	_In_ PSHV_VP_STATE VpState
-)
+void vmx_dispatch_vm_exit(vmx::guest_context& guest_contex)
 {
 	//
 	// This is the generic VM-Exit handler. Decode the reason for the exit and
@@ -686,16 +660,16 @@ ShvVmxHandleExit(
 	// INVD, XSETBV and other VMX instructions. GETSEC cannot happen as we do
 	// not run in SMX context.
 	//
-	switch (VpState->ExitReason)
+	switch (guest_contex.exit_reason)
 	{
 	case VMX_EXIT_REASON_EXECUTE_CPUID:
-		ShvVmxHandleCpuid(VpState);
+		vmx_handle_cpuid(guest_contex);
 		break;
 	case VMX_EXIT_REASON_EXECUTE_INVD:
-		ShvVmxHandleInvd();
+		vmx_handle_invd();
 		break;
 	case VMX_EXIT_REASON_EXECUTE_XSETBV:
-		ShvVmxHandleXsetbv(VpState);
+		vmx_handle_xsetbv(guest_contex);
 		break;
 	case VMX_EXIT_REASON_EXECUTE_VMCALL:
 	case VMX_EXIT_REASON_EXECUTE_VMCLEAR:
@@ -707,7 +681,7 @@ ShvVmxHandleExit(
 	case VMX_EXIT_REASON_EXECUTE_VMWRITE:
 	case VMX_EXIT_REASON_EXECUTE_VMXOFF:
 	case VMX_EXIT_REASON_EXECUTE_VMXON:
-		ShvVmxHandleVmx(VpState);
+		vmx_handle_vmx(guest_contex);
 		break;
 	default:
 		break;
@@ -718,28 +692,13 @@ ShvVmxHandleExit(
 	// caused the exit. Since we are not doing any special handling or changing
 	// of execution, this can be done for any exit reason.
 	//
-	VpState->GuestRip += read_vmx(VMCS_VMEXIT_INSTRUCTION_LENGTH);
-	__vmx_vmwrite(VMCS_GUEST_RIP, VpState->GuestRip);
+	guest_contex.guest_rip += read_vmx(VMCS_VMEXIT_INSTRUCTION_LENGTH);
+	__vmx_vmwrite(VMCS_GUEST_RIP, guest_contex.guest_rip);
 }
 
-extern "C" DECLSPEC_NORETURN
-VOID
-ShvVmxEntryHandler()
+extern "C" [[ noreturn ]] void vm_exit_handler(CONTEXT* context)
 {
-	PCONTEXT Context = (PCONTEXT)_AddressOfReturnAddress();
-	SHV_VP_STATE guestContext;
-
-	//
-	// Because we had to use RCX when calling ShvOsCaptureContext, its value
-	// was actually pushed on the stack right before the call. Go dig into the
-	// stack to find it, and overwrite the bogus value that's there now.
-	//
-	//Context->Rcx = *(UINT64*)((uintptr_t)Context - sizeof(Context->Rcx));
-
-	//
-	// Get the per-VP data for this processor.
-	//
-	auto* vpData = (vmx::vm_state*)((uintptr_t)(Context + 1) - KERNEL_STACK_SIZE);
+	auto* vm_state = resolve_vm_state_from_context(*context);
 
 	//
 	// Build a little stack context to make it easier to keep track of certain
@@ -747,37 +706,31 @@ ShvVmxEntryHandler()
 	// of the general purpose registers come from the context structure that we
 	// captured on our own with RtlCaptureContext in the assembly entrypoint.
 	//
-	guestContext.GuestEFlags = read_vmx(VMCS_GUEST_RFLAGS);
-	guestContext.GuestRip = read_vmx(VMCS_GUEST_RIP);
-	guestContext.GuestRsp = read_vmx(VMCS_GUEST_RSP);
-	guestContext.ExitReason = read_vmx(VMCS_EXIT_REASON) & 0xFFFF;
-	guestContext.VpRegs = Context;
-	guestContext.ExitVm = FALSE;
+	vmx::guest_context guest_context{};
+	guest_context.guest_e_flags = read_vmx(VMCS_GUEST_RFLAGS);
+	guest_context.guest_rip = read_vmx(VMCS_GUEST_RIP);
+	guest_context.guest_rsp = read_vmx(VMCS_GUEST_RSP);
+	guest_context.exit_reason = read_vmx(VMCS_EXIT_REASON) & 0xFFFF;
+	guest_context.vp_regs = context;
+	guest_context.exit_vm = false;
 
 	//
 	// Call the generic handler
 	//
-	ShvVmxHandleExit(&guestContext);
+	vmx_dispatch_vm_exit(guest_context);
 
 	//
 	// Did we hit the magic exit sequence, or should we resume back to the VM
 	// context?
 	//
-	if (guestContext.ExitVm != FALSE)
+	if (guest_context.exit_vm)
 	{
-		//
-		// Return the VP Data structure in RAX:RBX which is going to be part of
-		// the CPUID response that the caller (ShvVpUninitialize) expects back.
-		// Return confirmation in RCX that we are loaded
-		//
-		Context->Rax = (uintptr_t)vpData >> 32;
-		Context->Rbx = (uintptr_t)vpData & 0xFFFFFFFF;
-		Context->Rcx = 0x43434343;
+		context->Rcx = 0x43434343;
 
 		//
 		// Perform any OS-specific CPU uninitialization work
 		//
-		restore_descriptor_tables(vpData->launch_context);
+		restore_descriptor_tables(vm_state->launch_context);
 
 		//
 		// Our callback routine may have interrupted an arbitrary user process,
@@ -796,9 +749,9 @@ ShvVmxEntryHandler()
 		// execute (such as ShvVpUninitialize). This will effectively act as
 		// a longjmp back to that location.
 		//
-		Context->Rsp = guestContext.GuestRsp;
-		Context->Rip = (UINT64)guestContext.GuestRip;
-		Context->EFlags = (UINT32)guestContext.GuestEFlags;
+		context->Rsp = guest_context.guest_rsp;
+		context->Rip = guest_context.guest_rip;
+		context->EFlags = static_cast<uint32_t>(guest_context.guest_e_flags);
 
 		//
 		// Turn off VMX root mode on this logical processor. We're done here.
@@ -813,7 +766,7 @@ ShvVmxEntryHandler()
 		// needed as RtlRestoreContext will fix all the GPRs, and what we just
 		// did to RSP will take care of the rest.
 		//
-		Context->Rip = reinterpret_cast<uint64_t>(resume_vmx);
+		context->Rip = reinterpret_cast<uint64_t>(resume_vmx);
 	}
 
 	//
@@ -823,15 +776,10 @@ ShvVmxEntryHandler()
 	// which we use in case an exit was requested. In this case VMX must now be
 	// off, and this will look like a longjmp to the original stack and RIP.
 	//
-	restore_context(Context);
+	restore_context(context);
 }
 
-
-extern "C" VOID
-ShvVmxEntry(
-	VOID);
-
-void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
+void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 {
 	auto* launch_context = &VpData->launch_context;
 	auto* state = &launch_context->special_registers;
@@ -920,7 +868,7 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	//
 	// Load the CS Segment (Ring 0 Code)
 	//
-	vmx_gdt_entry vmx_gdt_entry{};
+	vmx::gdt_entry vmx_gdt_entry{};
 	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegCs, &vmx_gdt_entry);
 	__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, vmx_gdt_entry.selector);
 	__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, vmx_gdt_entry.limit);
@@ -1047,8 +995,10 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	// corresponds exactly to the location where RtlCaptureContext will return
 	// to inside of ShvVpInitialize.
 	//
-	__vmx_vmwrite(VMCS_GUEST_RSP, (uintptr_t)VpData->stack_buffer + KERNEL_STACK_SIZE - sizeof(CONTEXT));
-	__vmx_vmwrite(VMCS_GUEST_RIP, reinterpret_cast<size_t>(restore_post_launch));
+	const auto stack_pointer = reinterpret_cast<uintptr_t>(VpData->stack_buffer) + KERNEL_STACK_SIZE - sizeof(CONTEXT);
+
+	__vmx_vmwrite(VMCS_GUEST_RSP, stack_pointer);
+	__vmx_vmwrite(VMCS_GUEST_RIP, reinterpret_cast<uintptr_t>(vm_launch));
 	__vmx_vmwrite(VMCS_GUEST_RFLAGS, context->EFlags);
 
 	//
@@ -1061,11 +1011,11 @@ void ShvVmxSetupVmcsForVp(vmx::vm_state* VpData)
 	// the ones that RtlCaptureContext will perform.
 	//
 	C_ASSERT((KERNEL_STACK_SIZE - sizeof(CONTEXT)) % 16 == 0);
-	__vmx_vmwrite(VMCS_HOST_RSP, (uintptr_t)VpData->stack_buffer + KERNEL_STACK_SIZE - sizeof(CONTEXT));
-	__vmx_vmwrite(VMCS_HOST_RIP, (uintptr_t)ShvVmxEntry);
+	__vmx_vmwrite(VMCS_HOST_RSP, stack_pointer);
+	__vmx_vmwrite(VMCS_HOST_RIP, reinterpret_cast<uintptr_t>(vm_exit));
 }
 
-INT32 ShvVmxLaunchOnVp(vmx::vm_state* VpData)
+INT32 ShvVmxLaunchOnVp(vmx::state* VpData)
 {
 	//
 	// Initialize all the VMX-related MSRs by reading their value
@@ -1153,11 +1103,11 @@ void hypervisor::allocate_vm_states()
 	// As Windows technically supports cpu hot-plugging, keep track of the allocation count.
 	// However virtualizing the hot-plugged cpu won't be supported here.
 	this->vm_state_count_ = thread::get_processor_count();
-	this->vm_states_ = new vmx::vm_state*[this->vm_state_count_]{};
+	this->vm_states_ = new vmx::state*[this->vm_state_count_]{};
 
 	for (auto i = 0u; i < this->vm_state_count_; ++i)
 	{
-		this->vm_states_[i] = memory::allocate_aligned_object<vmx::vm_state>();
+		this->vm_states_[i] = memory::allocate_aligned_object<vmx::state>();
 		if (!this->vm_states_[i])
 		{
 			throw std::runtime_error("Failed to allocate VM state entries");
@@ -1182,7 +1132,7 @@ void hypervisor::free_vm_states()
 	this->vm_state_count_ = 0;
 }
 
-vmx::vm_state* hypervisor::get_current_vm_state() const
+vmx::state* hypervisor::get_current_vm_state() const
 {
 	const auto current_core = thread::get_processor_index();
 	if (current_core >= this->vm_state_count_)

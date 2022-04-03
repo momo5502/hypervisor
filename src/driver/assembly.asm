@@ -71,27 +71,40 @@ LEAF_END restore_context, _TEXT$00
 
 ; -----------------------------------------------------
 
-extern ShvVmxEntryHandler:proc
+extern vm_exit_handler:proc
+extern vm_launch_handler:proc
 extern RtlCaptureContext:proc
 
 ; -----------------------------------------------------
 
-ShvVmxEntry PROC
+vm_launch PROC
+    mov rcx, rsp
+    sub rsp, 30h
+    jmp vm_launch_handler
+vm_launch ENDP
+
+; -----------------------------------------------------
+
+vm_exit PROC
+    ; Load CONTEXT pointer
     push    rcx
     lea     rcx, [rsp+8h]
 
-    sub rsp, 30h
+    sub rsp, 30h ; Home-space
     call RtlCaptureContext
     add rsp, 30h
 
     mov rcx, [rsp+CxRsp+8h]
-    add rcx, 8h
+    add rcx, 8h  ; Fixup push rcx
+    add rcx, 30h ; Fixup home-space
     mov [rsp+CxRsp+8h], rcx
 
     pop rcx
     mov [rsp+CxRcx], rcx
 
-    jmp ShvVmxEntryHandler
-ShvVmxEntry ENDP
+    mov rcx, rsp
+    sub rsp, 30h
+    jmp vm_exit_handler
+vm_exit ENDP
 
 end

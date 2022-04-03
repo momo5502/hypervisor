@@ -39,7 +39,7 @@ namespace vmx
 
 #define DECLSPEC_PAGE_ALIGN DECLSPEC_ALIGN(PAGE_SIZE)
 
-	struct vm_launch_context
+	struct launch_context
 	{
 		special_registers special_registers;
 		CONTEXT context_frame;
@@ -53,7 +53,7 @@ namespace vmx
 		ia32_vmx_procbased_ctls2_register ept_controls;
 	};
 
-	struct vm_state
+	struct state
 	{
 		DECLSPEC_PAGE_ALIGN uint8_t stack_buffer[KERNEL_STACK_SIZE]{};
 		DECLSPEC_PAGE_ALIGN uint8_t msr_bitmap[PAGE_SIZE]{};
@@ -63,14 +63,24 @@ namespace vmx
 
 		DECLSPEC_PAGE_ALIGN vmcs vmx_on{};
 		DECLSPEC_PAGE_ALIGN vmcs vmcs{};
-		DECLSPEC_PAGE_ALIGN vm_launch_context launch_context{};
+		DECLSPEC_PAGE_ALIGN launch_context launch_context{};
+	};
+
+	struct gdt_entry
+	{
+		uint64_t base;
+		uint32_t limit;
+		vmx_segment_access_rights access_rights;
+		uint16_t selector;
+	};
+
+	struct guest_context
+	{
+		PCONTEXT vp_regs;
+		uintptr_t guest_rip;
+		uintptr_t guest_rsp;
+		uintptr_t guest_e_flags;
+		uint16_t exit_reason;
+		bool exit_vm;
 	};
 }
-
-struct vmx_gdt_entry
-{
-	uint64_t base;
-	uint32_t limit;
-	vmx_segment_access_rights access_rights;
-	uint16_t selector;
-};

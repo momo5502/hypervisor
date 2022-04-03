@@ -21,7 +21,7 @@ public:
 
 private:
 	uint32_t vm_state_count_{0};
-	vmx::vm_state** vm_states_{nullptr};
+	vmx::state** vm_states_{nullptr};
 
 	void enable_core(uint64_t system_directory_table_base);
 	bool try_enable_core(uint64_t system_directory_table_base);
@@ -30,5 +30,5 @@ private:
 	void allocate_vm_states();
 	void free_vm_states();
 
-	vmx::vm_state* get_current_vm_state() const;
+	vmx::state* get_current_vm_state() const;
 };

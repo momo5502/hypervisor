@@ -1,6 +1,5 @@
 #pragma once
 #include "std_include.hpp"
-#include "stdint.hpp"
 
 extern "C" {
 
@@ -11,6 +10,8 @@ void __lgdt(void* gdtr);
 
 void _sgdt(void*);
 
+[[ noreturn ]] void vm_launch();
+[[ noreturn ]] void vm_exit();
 [[ noreturn ]] void restore_context(CONTEXT* context);
 
 }
