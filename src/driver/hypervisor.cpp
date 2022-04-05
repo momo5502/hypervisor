@@ -1016,15 +1016,18 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	__vmx_vmwrite(VMCS_HOST_RIP, reinterpret_cast<uintptr_t>(vm_exit));
 }
 
+void initialize_msrs(vmx::launch_context& launch_context)
+{
+	constexpr auto msr_count = sizeof(launch_context.msr_data) / sizeof(launch_context.msr_data[0]);
+	for (auto i = 0u; i < msr_count; ++i)
+	{
+		launch_context.msr_data[i].QuadPart = __readmsr(IA32_VMX_BASIC + i);
+	}
+}
+
 INT32 ShvVmxLaunchOnVp(vmx::state* VpData)
 {
-	//
-	// Initialize all the VMX-related MSRs by reading their value
-	//
-	for (UINT32 i = 0; i < sizeof(VpData->launch_context.msr_data) / sizeof(VpData->launch_context.msr_data[0]); i++)
-	{
-		VpData->launch_context.msr_data[i].QuadPart = __readmsr(IA32_VMX_BASIC + i);
-	}
+	initialize_msrs(VpData->launch_context);
 
 	//
 	// Initialize all the MTRR-related MSRs by reading their value and build
@@ -1063,7 +1066,7 @@ INT32 ShvVmxLaunchOnVp(vmx::state* VpData)
 
 void hypervisor::enable_core(const uint64_t system_directory_table_base)
 {
-	debug_log("Enabling hypervisor on core %d\n", thread::get_processor_index(), thread::get_processor_index());
+	debug_log("Enabling hypervisor on core %d\n", thread::get_processor_index());
 	auto* vm_state = this->get_current_vm_state();
 
 	vm_state->launch_context.system_directory_table_base = system_directory_table_base;
