@@ -7,6 +7,7 @@
 #include "memory.hpp"
 #include "thread.hpp"
 #include "assembly.hpp"
+#include "string.hpp"
 
 namespace
 {
@@ -53,8 +54,8 @@ namespace
 		special_registers.debug_control = __readmsr(IA32_DEBUGCTL);
 		special_registers.msr_gs_base = __readmsr(IA32_GS_BASE);
 		special_registers.kernel_dr7 = __readdr(7);
-		_sgdt(&special_registers.gdtr.limit);
-		__sidt(&special_registers.idtr.limit);
+		_sgdt(&special_registers.gdtr);
+		__sidt(&special_registers.idtr);
 		_str(&special_registers.tr);
 		_sldt(&special_registers.ldtr);
 	}
@@ -68,8 +69,8 @@ namespace
 
 	void restore_descriptor_tables(vmx::launch_context& launch_context)
 	{
-		__lgdt(&launch_context.special_registers.gdtr.limit);
-		__lidt(&launch_context.special_registers.idtr.limit);
+		__lgdt(&launch_context.special_registers.gdtr);
+		__lidt(&launch_context.special_registers.idtr);
 	}
 
 	vmx::state* resolve_vm_state_from_context(CONTEXT& context)
@@ -1056,7 +1057,7 @@ INT32 ShvVmxLaunchOnVp(vmx::state* VpData)
 	// back to the caller on failure.
 	//
 	auto error_code = launch_vmx();
-	throw std::runtime_error("Failed to launch vmx");
+	throw std::runtime_error(string::va("Failed to launch vmx: %X", error_code));
 }
 
 
@@ -1068,7 +1069,9 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	vm_state->launch_context.system_directory_table_base = system_directory_table_base;
 
 	capture_cpu_context(vm_state->launch_context);
-	if ((__readeflags() & EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG) == 0)
+
+	const rflags rflags{.flags = __readeflags()};
+	if (!rflags.alignment_check_flag)
 	{
 		ShvVmxLaunchOnVp(vm_state);
 	}

@@ -1,7 +1,7 @@
+#include "std_include.hpp"
 #include "irp.hpp"
 #include "finally.hpp"
 #include "logging.hpp"
-#include "exception.hpp"
 #include "string.hpp"
 #include "memory.hpp"
 
@@ -68,7 +68,7 @@ namespace
 				debug_log("Hello from the Driver!\n");
 				break;
 			case HOOK_DRV_IOCTL:
-				apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
+				//apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
 				break;
 			default:
 				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
@@ -128,12 +128,18 @@ irp::irp(const PDRIVER_OBJECT driver_object, const wchar_t* device_name, const w
 
 irp::~irp()
 {
-	PAGED_CODE()
-
-	if (this->device_object_)
+	try
 	{
-		IoDeleteSymbolicLink(&this->dos_device_name_);
-		IoDeleteDevice(this->device_object_);
+		PAGED_CODE()
+
+		if (this->device_object_)
+		{
+			IoDeleteSymbolicLink(&this->dos_device_name_);
+			IoDeleteDevice(this->device_object_);
+		}
+	}
+	catch (...)
+	{
 	}
 }
 
