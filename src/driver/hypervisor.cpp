@@ -354,7 +354,7 @@ void ShvVmxEptInitialize(vmx::state* VpData)
 }
 
 
-UINT8
+bool
 ShvVmxEnterRootModeOnVp(vmx::state* VpData)
 {
 	auto* launch_context = &VpData->launch_context;
@@ -1025,40 +1025,19 @@ void initialize_msrs(vmx::launch_context& launch_context)
 	}
 }
 
-INT32 ShvVmxLaunchOnVp(vmx::state* VpData)
+void launch_hypervisor(vmx::state& vm_state)
 {
-	initialize_msrs(VpData->launch_context);
+	initialize_msrs(vm_state.launch_context);
+	ShvVmxMtrrInitialize(&vm_state);
+	ShvVmxEptInitialize(&vm_state);
 
-	//
-	// Initialize all the MTRR-related MSRs by reading their value and build
-	// range structures to describe their settings
-	//
-	ShvVmxMtrrInitialize(VpData);
-
-	//
-	// Initialize the EPT structures
-	//
-	ShvVmxEptInitialize(VpData);
-
-	//
-	// Attempt to enter VMX root mode on this processor.
-	//
-	if (ShvVmxEnterRootModeOnVp(VpData) == FALSE)
+	if (!ShvVmxEnterRootModeOnVp(&vm_state))
 	{
 		throw std::runtime_error("Not available");
 	}
 
-	//
-	// Initialize the VMCS, both guest and host state.
-	//
-	ShvVmxSetupVmcsForVp(VpData);
+	ShvVmxSetupVmcsForVp(&vm_state);
 
-	//
-	// Launch the VMCS, based on the guest data that was loaded into the
-	// various VMCS fields by ShvVmxSetupVmcsForVp. This will cause the
-	// processor to jump to ShvVpRestoreAfterLaunch on success, or return
-	// back to the caller on failure.
-	//
 	auto error_code = launch_vmx();
 	throw std::runtime_error(string::va("Failed to launch vmx: %X", error_code));
 }
@@ -1076,7 +1055,7 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	const rflags rflags{.flags = __readeflags()};
 	if (!rflags.alignment_check_flag)
 	{
-		ShvVmxLaunchOnVp(vm_state);
+		launch_hypervisor(*vm_state);
 	}
 
 	if (!is_hypervisor_present())
