@@ -2,6 +2,7 @@
 
 #include <ntddk.h>
 #include <intrin.h>
+#include <Ntstrsafe.h>
 
 #pragma warning(push)
 #pragma warning(disable: 4201)
