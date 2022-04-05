@@ -1,5 +1,17 @@
 #pragma once
 
+#ifdef ASSERT
+#undef ASSERT
+#endif
+
+#define ASSERT( exp ) if(!(exp)) throw std::runtime_error("Assertion failed: " STRINGIFY(exp))
+
+#ifdef NT_ASSERT
+#undef NT_ASSERT
+#endif
+
+#define NT_ASSERT( exp ) ASSERT( exp )
+
 namespace std
 {
 	class exception
