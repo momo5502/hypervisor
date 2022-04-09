@@ -353,7 +353,7 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	basic_register.flags = launch_context->msr_data[0].QuadPart;
 	if (basic_register.vmcs_size_in_bytes > static_cast<uint64_t>(PAGE_SIZE))
 	{
-		return FALSE;
+		return false;
 	}
 
 	//
@@ -361,7 +361,7 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	//
 	if (basic_register.memory_type != static_cast<uint64_t>(MEMORY_TYPE_WRITE_BACK))
 	{
-		return FALSE;
+		return false;
 	}
 
 	//
@@ -369,7 +369,7 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	//
 	if (basic_register.must_be_zero)
 	{
-		return FALSE;
+		return false;
 	}
 
 	//
@@ -427,7 +427,7 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	//
 	if (__vmx_on(&launch_context->vmx_on_physical_address))
 	{
-		return FALSE;
+		return false;
 	}
 
 	//
@@ -436,7 +436,7 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	if (__vmx_vmclear(&launch_context->vmcs_physical_address))
 	{
 		__vmx_off();
-		return FALSE;
+		return false;
 	}
 
 	//
@@ -445,13 +445,13 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	if (__vmx_vmptrld(&launch_context->vmcs_physical_address))
 	{
 		__vmx_off();
-		return FALSE;
+		return false;
 	}
 
 	//
 	// VMX Root Mode is enabled, with an active VMCS.
 	//
-	return TRUE;
+	return true;
 }
 
 vmx::gdt_entry convert_gdt_entry(const uint64_t gdt_base, const uint16_t selector_value)
