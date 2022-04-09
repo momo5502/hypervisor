@@ -71,7 +71,7 @@ namespace vmx
 		uint64_t base;
 		uint32_t limit;
 		vmx_segment_access_rights access_rights;
-		uint16_t selector;
+		segment_selector selector;
 	};
 
 	struct guest_context

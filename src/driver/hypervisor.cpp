@@ -252,44 +252,31 @@ VOID ShvVmxMtrrInitialize(vmx::state* VpData)
 	}
 }
 
-UINT32
-ShvVmxMtrrAdjustEffectiveMemoryType(
-	vmx::state* VpData,
-	_In_ UINT64 LargePageAddress,
-	_In_ UINT32 CandidateMemoryType
-)
+uint32_t mtrr_adjust_effective_memory_type(	vmx::launch_context& launch_context,        const uint64_t large_page_address,	uint32_t candidate_memory_type)
 {
-	auto* launch_context = &VpData->launch_context;
-
 	//
 	// Loop each MTRR range
 	//
-	for (auto i = 0u; i < sizeof(launch_context->mtrr_data) / sizeof(launch_context->mtrr_data[0]); i++)
-	{
+	for (const auto& mtrr_entry : launch_context.mtrr_data) {
 		//
 		// Check if it's active
 		//
-		if (launch_context->mtrr_data[i].enabled != FALSE)
-		{
-			//
-			// Check if this large page falls within the boundary. If a single
-			// physical page (4KB) touches it, we need to override the entire 2MB.
-			//
-			if (((LargePageAddress + (_2MB - 1)) >= launch_context->mtrr_data[i].physical_address_min) &&
-				(LargePageAddress <= launch_context->mtrr_data[i].physical_address_max))
-			{
-				//
-				// Override candidate type with MTRR type
-				//
-				CandidateMemoryType = launch_context->mtrr_data[i].type;
-			}
-		}
+	    if (!mtrr_entry.enabled)
+	    {
+	      continue;
+	    }
+		  //
+		  // Check if this large page falls within the boundary. If a single
+		  // physical page (4KB) touches it, we need to override the entire 2MB.
+		  //
+		  if (((large_page_address + (_2MB - 1)) >= mtrr_entry.physical_address_min) &&
+			  (large_page_address <= mtrr_entry.physical_address_max))
+		  {
+		    candidate_memory_type = mtrr_entry.type;
+		  }
 	}
 
-	//
-	// Return the correct type needed
-	//
-	return CandidateMemoryType;
+	return candidate_memory_type;
 }
 
 void ShvVmxEptInitialize(vmx::state* VpData)
@@ -327,7 +314,7 @@ void ShvVmxEptInitialize(vmx::state* VpData)
 	//
 	// Fill out a RWX Large PDE
 	//
-	epde_2mb temp_epde;
+	epde_2mb temp_epde{};
 	temp_epde.flags = 0;
 	temp_epde.read_access = 1;
 	temp_epde.write_access = 1;
@@ -337,7 +324,7 @@ void ShvVmxEptInitialize(vmx::state* VpData)
 	//
 	// Loop every 1GB of RAM (described by the PDPTE)
 	//
-	__stosq((UINT64*)VpData->epde, temp_epde.flags, EPT_PDPTE_ENTRY_COUNT * EPT_PDE_ENTRY_COUNT);
+	__stosq(reinterpret_cast<uint64_t*>(VpData->epde), temp_epde.flags, EPT_PDPTE_ENTRY_COUNT * EPT_PDE_ENTRY_COUNT);
 	for (auto i = 0; i < EPT_PDPTE_ENTRY_COUNT; i++)
 	{
 		//
@@ -346,7 +333,7 @@ void ShvVmxEptInitialize(vmx::state* VpData)
 		for (auto j = 0; j < EPT_PDE_ENTRY_COUNT; j++)
 		{
 			VpData->epde[i][j].page_frame_number = (i * 512) + j;
-			VpData->epde[i][j].memory_type = ShvVmxMtrrAdjustEffectiveMemoryType(VpData,
+			VpData->epde[i][j].memory_type = mtrr_adjust_effective_memory_type(VpData->launch_context,
 				VpData->epde[i][j].page_frame_number * _2MB,
 				MEMORY_TYPE_WRITE_BACK);
 		}
@@ -364,6 +351,8 @@ ShvVmxEnterRootModeOnVp(vmx::state* VpData)
 	// Ensure the the VMCS can fit into a single page
 	//
 	ia32_vmx_basic_register basic_register{};
+	memset(&basic_register, 0, sizeof(basic_register));
+
 	basic_register.flags = launch_context->msr_data[0].QuadPart;
 	if (basic_register.vmcs_size_in_bytes > PAGE_SIZE)
 	{
@@ -468,43 +457,41 @@ ShvVmxEnterRootModeOnVp(vmx::state* VpData)
 	return TRUE;
 }
 
-
-VOID
-ShvUtilConvertGdtEntry(
-	_In_ uint64_t GdtBase,
-	_In_ UINT16 Selector,
-	_Out_ vmx::gdt_entry* VmxGdtEntry
-)
+vmx::gdt_entry convert_gdt_entry(const uint64_t gdt_base, const uint16_t selector_value)
 {
+  vmx::gdt_entry result{};
+  memset(&result, 0, sizeof(result));
+
+  segment_selector selector{};
+  selector.flags = selector_value;
+
 	//
 	// Reject LDT or NULL entries
 	//
-	if ((Selector == 0) ||
-		(Selector & SEGMENT_SELECTOR_TABLE_FLAG) != 0)
+	if (selector.flags ==  0 || selector.table)
 	{
-		VmxGdtEntry->limit = 0;
-		VmxGdtEntry->access_rights.flags = 0;
-		VmxGdtEntry->base = 0;
-		VmxGdtEntry->selector = 0;
-		VmxGdtEntry->access_rights.unusable = 1;
-		return;
+	  result.limit = 0;
+	  result.access_rights.flags = 0;
+	  result.base = 0;
+	  result.selector.flags = 0;
+	  result.access_rights.unusable = 1;
+		return result;
 	}
 
 	//
 	// Read the GDT entry at the given selector, masking out the RPL bits.
 	//
-	auto* gdt_entry = (segment_descriptor_64*)(GdtBase + (Selector & ~
-		SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK));
+  const auto* gdt_entry = reinterpret_cast<segment_descriptor_64*>(gdt_base + static_cast<uint64_t>(selector.index) * 8);
 
 	//
 	// Write the selector directly 
 	//
-	VmxGdtEntry->selector = Selector;
+	result.selector = selector;
 
 	//
 	// Use the LSL intrinsic to read the segment limit
 	//
-	VmxGdtEntry->limit = __segmentlimit(Selector);
+	result.limit = __segmentlimit(selector.flags);
 
 	//
 	// Build the full 64-bit effective address, keeping in mind that only when
@@ -515,35 +502,37 @@ ShvUtilConvertGdtEntry(
 	// The actual location of the SYSTEM bit is encoded as the highest bit in
 	// the "Type" field.
 	//
-	VmxGdtEntry->base = 0;
-	VmxGdtEntry->base |= static_cast<uint64_t>(gdt_entry->base_address_low);
-	VmxGdtEntry->base |= static_cast<uint64_t>(gdt_entry->base_address_middle) << 16;
-	VmxGdtEntry->base |= static_cast<uint64_t>(gdt_entry->base_address_high) << 24;
+	result.base = 0;
+	result.base |= static_cast<uint64_t>(gdt_entry->base_address_low);
+	result.base |= static_cast<uint64_t>(gdt_entry->base_address_middle) << 16;
+	result.base |= static_cast<uint64_t>(gdt_entry->base_address_high) << 24;
 	if (gdt_entry->descriptor_type == 0u)
 	{
-		VmxGdtEntry->base |= static_cast<uint64_t>(gdt_entry->base_address_upper) << 32;
+	  result.base |= static_cast<uint64_t>(gdt_entry->base_address_upper) << 32;
 	}
 
 	//
 	// Load the access rights
 	//
-	VmxGdtEntry->access_rights.flags = 0;
+	result.access_rights.flags = 0;
 
-	VmxGdtEntry->access_rights.type = gdt_entry->type;
-	VmxGdtEntry->access_rights.descriptor_type = gdt_entry->descriptor_type;
-	VmxGdtEntry->access_rights.descriptor_privilege_level = gdt_entry->descriptor_privilege_level;
-	VmxGdtEntry->access_rights.present = gdt_entry->present;
-	VmxGdtEntry->access_rights.reserved1 = gdt_entry->segment_limit_high;
-	VmxGdtEntry->access_rights.available_bit = gdt_entry->system;
-	VmxGdtEntry->access_rights.long_mode = gdt_entry->long_mode;
-	VmxGdtEntry->access_rights.default_big = gdt_entry->default_big;
-	VmxGdtEntry->access_rights.granularity = gdt_entry->granularity;
+	result.access_rights.type = gdt_entry->type;
+	result.access_rights.descriptor_type = gdt_entry->descriptor_type;
+	result.access_rights.descriptor_privilege_level = gdt_entry->descriptor_privilege_level;
+	result.access_rights.present = gdt_entry->present;
+	result.access_rights.reserved1 = gdt_entry->segment_limit_high;
+	result.access_rights.available_bit = gdt_entry->system;
+	result.access_rights.long_mode = gdt_entry->long_mode;
+	result.access_rights.default_big = gdt_entry->default_big;
+	result.access_rights.granularity = gdt_entry->granularity;
 
 	//
 	// Finally, handle the VMX-specific bits
 	//
-	VmxGdtEntry->access_rights.reserved1 = 0;
-	VmxGdtEntry->access_rights.unusable = !gdt_entry->present;
+	result.access_rights.reserved1 = 0;
+	result.access_rights.unusable = !gdt_entry->present;
+
+	return result;
 }
 
 uint32_t adjust_msr(const ULARGE_INTEGER control_value, const uint64_t desired_value)
@@ -865,62 +854,62 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	//
 	// Load the CS Segment (Ring 0 Code)
 	//
-	vmx::gdt_entry vmx_gdt_entry{};
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegCs, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_CS_BASE, vmx_gdt_entry.base);
+	vmx::gdt_entry gdt_entry{};
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, context->SegCs);
+	__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_CS_BASE, gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_CS_SELECTOR, context->SegCs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the SS Segment (Ring 0 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegSs, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_SS_BASE, vmx_gdt_entry.base);
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, context->SegSs);
+	__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_SS_BASE, gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_SS_SELECTOR, context->SegSs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the DS Segment (Ring 3 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegDs, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_DS_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_DS_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_DS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_DS_BASE, vmx_gdt_entry.base);
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, context->SegDs);
+	__vmx_vmwrite(VMCS_GUEST_DS_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_DS_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_DS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_DS_BASE, gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_DS_SELECTOR, context->SegDs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the ES Segment (Ring 3 Data)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegEs, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_ES_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_ES_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_ES_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_ES_BASE, vmx_gdt_entry.base);
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, context->SegEs);
+	__vmx_vmwrite(VMCS_GUEST_ES_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_ES_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_ES_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_ES_BASE, gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_ES_SELECTOR, context->SegEs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the FS Segment (Ring 3 Compatibility-Mode TEB)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegFs, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_FS_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_FS_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_FS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_FS_BASE, vmx_gdt_entry.base);
-	__vmx_vmwrite(VMCS_HOST_FS_BASE, vmx_gdt_entry.base);
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, context->SegFs);
+	__vmx_vmwrite(VMCS_GUEST_FS_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_FS_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_FS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_FS_BASE, gdt_entry.base);
+	__vmx_vmwrite(VMCS_HOST_FS_BASE, gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_FS_SELECTOR, context->SegFs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the GS Segment (Ring 3 Data if in Compatibility-Mode, MSR-based in Long Mode)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, context->SegGs, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_GS_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_GS_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_GS_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, context->SegGs);
+	__vmx_vmwrite(VMCS_GUEST_GS_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_GS_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_GS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
 	__vmx_vmwrite(VMCS_GUEST_GS_BASE, state->msr_gs_base);
 	__vmx_vmwrite(VMCS_HOST_GS_BASE, state->msr_gs_base);
 	__vmx_vmwrite(VMCS_HOST_GS_SELECTOR, context->SegGs & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
@@ -928,22 +917,22 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	//
 	// Load the Task Register (Ring 0 TSS)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->tr, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_TR_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_TR_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_TR_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_TR_BASE, vmx_gdt_entry.base);
-	__vmx_vmwrite(VMCS_HOST_TR_BASE, vmx_gdt_entry.base);
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, state->tr);
+	__vmx_vmwrite(VMCS_GUEST_TR_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_TR_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_TR_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_TR_BASE, gdt_entry.base);
+	__vmx_vmwrite(VMCS_HOST_TR_BASE, gdt_entry.base);
 	__vmx_vmwrite(VMCS_HOST_TR_SELECTOR, state->tr & ~SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK);
 
 	//
 	// Load the Local Descriptor Table (Ring 0 LDT on Redstone)
 	//
-	ShvUtilConvertGdtEntry(state->gdtr.base_address, state->ldtr, &vmx_gdt_entry);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_SELECTOR, vmx_gdt_entry.selector);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_LIMIT, vmx_gdt_entry.limit);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_ACCESS_RIGHTS, vmx_gdt_entry.access_rights.flags);
-	__vmx_vmwrite(VMCS_GUEST_LDTR_BASE, vmx_gdt_entry.base);
+	gdt_entry = convert_gdt_entry(state->gdtr.base_address, state->ldtr);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_SELECTOR, gdt_entry.selector.flags);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_LIMIT, gdt_entry.limit);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+	__vmx_vmwrite(VMCS_GUEST_LDTR_BASE, gdt_entry.base);
 
 	//
 	// Now load the GDT itself
