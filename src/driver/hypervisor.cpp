@@ -203,49 +203,47 @@ bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
 #define MTRR_PAGE_SIZE          4096
 #define MTRR_PAGE_MASK          (~(MTRR_PAGE_SIZE-1))
 
-VOID ShvVmxMtrrInitialize(vmx::state* VpData)
+void initialize_mtrr(vmx::launch_context& launch_context)
 {
-	ia32_mtrr_capabilities_register mtrrCapabilities;
-	ia32_mtrr_physbase_register mtrrBase;
-	ia32_mtrr_physmask_register mtrrMask;
-
-	auto* launch_context = &VpData->launch_context;
-
 	//
 	// Read the capabilities mask
 	//
-	mtrrCapabilities.flags = __readmsr(IA32_MTRR_CAPABILITIES);
+	ia32_mtrr_capabilities_register mtrr_capabilities{};
+	mtrr_capabilities.flags = __readmsr(IA32_MTRR_CAPABILITIES);
 
 	//
 	// Iterate over each variable MTRR
 	//
-	for (auto i = 0u; i < mtrrCapabilities.variable_range_count; i++)
+	for (auto i = 0u; i < mtrr_capabilities.variable_range_count; i++)
 	{
 		//
 		// Capture the value
 		//
-		mtrrBase.flags = __readmsr(IA32_MTRR_PHYSBASE0 + i * 2);
-		mtrrMask.flags = __readmsr(IA32_MTRR_PHYSMASK0 + i * 2);
+	  ia32_mtrr_physbase_register mtrr_base{};
+	  ia32_mtrr_physmask_register mtrr_mask{};
+
+		mtrr_base.flags = __readmsr(IA32_MTRR_PHYSBASE0 + i * 2);
+		mtrr_mask.flags = __readmsr(IA32_MTRR_PHYSMASK0 + i * 2);
 
 		//
 		// Check if the MTRR is enabled
 		//
-		launch_context->mtrr_data[i].type = (UINT32)mtrrBase.type;
-		launch_context->mtrr_data[i].enabled = (UINT32)mtrrMask.valid;
-		if (launch_context->mtrr_data[i].enabled != FALSE)
+		launch_context.mtrr_data[i].type = static_cast<uint32_t>(mtrr_base.type);
+		launch_context.mtrr_data[i].enabled = static_cast<uint32_t>(mtrr_mask.valid);
+		if (launch_context.mtrr_data[i].enabled != FALSE)
 		{
 			//
 			// Set the base
 			//
-			launch_context->mtrr_data[i].physical_address_min = mtrrBase.page_frame_number *
+			launch_context.mtrr_data[i].physical_address_min = mtrr_base.page_frame_number *
 				MTRR_PAGE_SIZE;
 
 			//
 			// Compute the length
 			//
 			unsigned long bit;
-			_BitScanForward64(&bit, mtrrMask.page_frame_number * MTRR_PAGE_SIZE);
-			launch_context->mtrr_data[i].physical_address_max = launch_context->mtrr_data[i].
+			_BitScanForward64(&bit, mtrr_mask.page_frame_number * MTRR_PAGE_SIZE);
+			launch_context.mtrr_data[i].physical_address_max = launch_context.mtrr_data[i].
 				physical_address_min +
 				(1ULL << bit) - 1;
 		}
@@ -279,15 +277,15 @@ uint32_t mtrr_adjust_effective_memory_type(	vmx::launch_context& launch_context,
 	return candidate_memory_type;
 }
 
-void ShvVmxEptInitialize(vmx::state* VpData)
+void initialize_ept(vmx::state& vm_state)
 {
 	//
 	// Fill out the EPML4E which covers the first 512GB of RAM
 	//
-	VpData->epml4[0].read_access = 1;
-	VpData->epml4[0].write_access = 1;
-	VpData->epml4[0].execute_access = 1;
-	VpData->epml4[0].page_frame_number = memory::get_physical_address(&VpData->epdpt) /
+  vm_state.epml4[0].read_access = 1;
+  vm_state.epml4[0].write_access = 1;
+  vm_state.epml4[0].execute_access = 1;
+  vm_state.epml4[0].page_frame_number = memory::get_physical_address(&vm_state.epdpt) /
 		PAGE_SIZE;
 
 	//
@@ -302,13 +300,13 @@ void ShvVmxEptInitialize(vmx::state* VpData)
 	//
 	// Construct EPT identity map for every 1GB of RAM
 	//
-	__stosq((UINT64*)VpData->epdpt, temp_epdpte.flags, EPT_PDPTE_ENTRY_COUNT);
+	__stosq(reinterpret_cast<uint64_t*>(vm_state.epdpt), temp_epdpte.flags, EPT_PDPTE_ENTRY_COUNT);
 	for (auto i = 0; i < EPT_PDPTE_ENTRY_COUNT; i++)
 	{
 		//
 		// Set the page frame number of the PDE table
 		//
-		VpData->epdpt[i].page_frame_number = memory::get_physical_address(&VpData->epde[i][0]) / PAGE_SIZE;
+	  vm_state.epdpt[i].page_frame_number = memory::get_physical_address(&vm_state.epde[i][0]) / PAGE_SIZE;
 	}
 
 	//
@@ -324,7 +322,7 @@ void ShvVmxEptInitialize(vmx::state* VpData)
 	//
 	// Loop every 1GB of RAM (described by the PDPTE)
 	//
-	__stosq(reinterpret_cast<uint64_t*>(VpData->epde), temp_epde.flags, EPT_PDPTE_ENTRY_COUNT * EPT_PDE_ENTRY_COUNT);
+	__stosq(reinterpret_cast<uint64_t*>(vm_state.epde), temp_epde.flags, EPT_PDPTE_ENTRY_COUNT * EPT_PDE_ENTRY_COUNT);
 	for (auto i = 0; i < EPT_PDPTE_ENTRY_COUNT; i++)
 	{
 		//
@@ -332,20 +330,19 @@ void ShvVmxEptInitialize(vmx::state* VpData)
 		//
 		for (auto j = 0; j < EPT_PDE_ENTRY_COUNT; j++)
 		{
-			VpData->epde[i][j].page_frame_number = (i * 512) + j;
-			VpData->epde[i][j].memory_type = mtrr_adjust_effective_memory_type(VpData->launch_context,
-				VpData->epde[i][j].page_frame_number * _2MB,
+		  vm_state.epde[i][j].page_frame_number = (i * 512) + j;
+		  vm_state.epde[i][j].memory_type = mtrr_adjust_effective_memory_type(vm_state.launch_context,
+		    vm_state.epde[i][j].page_frame_number * _2MB,
 				MEMORY_TYPE_WRITE_BACK);
 		}
 	}
 }
 
 
-bool
-ShvVmxEnterRootModeOnVp(vmx::state* VpData)
+bool enter_root_mode_on_cpu(vmx::state& vm_state)
 {
-	auto* launch_context = &VpData->launch_context;
-	auto* Registers = &launch_context->special_registers;
+	auto* launch_context = &vm_state.launch_context;
+	auto* registers = &launch_context->special_registers;
 
 	//
 	// Ensure the the VMCS can fit into a single page
@@ -354,7 +351,7 @@ ShvVmxEnterRootModeOnVp(vmx::state* VpData)
 	memset(&basic_register, 0, sizeof(basic_register));
 
 	basic_register.flags = launch_context->msr_data[0].QuadPart;
-	if (basic_register.vmcs_size_in_bytes > PAGE_SIZE)
+	if (basic_register.vmcs_size_in_bytes > static_cast<uint64_t>(PAGE_SIZE))
 	{
 		return FALSE;
 	}
@@ -362,7 +359,7 @@ ShvVmxEnterRootModeOnVp(vmx::state* VpData)
 	//
 	// Ensure that the VMCS is supported in writeback memory
 	//
-	if (basic_register.memory_type != MEMORY_TYPE_WRITE_BACK)
+	if (basic_register.memory_type != static_cast<uint64_t>(MEMORY_TYPE_WRITE_BACK))
 	{
 		return FALSE;
 	}
@@ -396,34 +393,34 @@ ShvVmxEnterRootModeOnVp(vmx::state* VpData)
 	//
 	// Capture the revision ID for the VMXON and VMCS region
 	//
-	VpData->vmx_on.revision_id = launch_context->msr_data[0].LowPart;
-	VpData->vmcs.revision_id = launch_context->msr_data[0].LowPart;
+	vm_state.vmx_on.revision_id = launch_context->msr_data[0].LowPart;
+	vm_state.vmcs.revision_id = launch_context->msr_data[0].LowPart;
 
 	//
 	// Store the physical addresses of all per-LP structures allocated
 	//
-	launch_context->vmx_on_physical_address = memory::get_physical_address(&VpData->vmx_on);
-	launch_context->vmcs_physical_address = memory::get_physical_address(&VpData->vmcs);
-	launch_context->msr_bitmap_physical_address = memory::get_physical_address(VpData->msr_bitmap);
-	launch_context->ept_pml4_physical_address = memory::get_physical_address(&VpData->epml4);
+	launch_context->vmx_on_physical_address = memory::get_physical_address(&vm_state.vmx_on);
+	launch_context->vmcs_physical_address = memory::get_physical_address(&vm_state.vmcs);
+	launch_context->msr_bitmap_physical_address = memory::get_physical_address(vm_state.msr_bitmap);
+	launch_context->ept_pml4_physical_address = memory::get_physical_address(&vm_state.epml4);
 
 	//
 	// Update CR0 with the must-be-zero and must-be-one requirements
 	//
-	Registers->cr0 &= launch_context->msr_data[7].LowPart;
-	Registers->cr0 |= launch_context->msr_data[6].LowPart;
+	registers->cr0 &= launch_context->msr_data[7].LowPart;
+	registers->cr0 |= launch_context->msr_data[6].LowPart;
 
 	//
 	// Do the same for CR4
 	//
-	Registers->cr4 &= launch_context->msr_data[9].LowPart;
-	Registers->cr4 |= launch_context->msr_data[8].LowPart;
+	registers->cr4 &= launch_context->msr_data[9].LowPart;
+	registers->cr4 |= launch_context->msr_data[8].LowPart;
 
 	//
 	// Update host CR0 and CR4 based on the requirements above
 	//
-	__writecr0(Registers->cr0);
-	__writecr4(Registers->cr4);
+	__writecr0(registers->cr0);
+	__writecr4(registers->cr4);
 
 	//
 	// Enable VMX Root Mode
@@ -766,9 +763,9 @@ extern "C" [[ noreturn ]] void vm_exit_handler(CONTEXT* context)
 	restore_context(context);
 }
 
-void ShvVmxSetupVmcsForVp(vmx::state* VpData)
+void setup_vmcs_for_cpu(vmx::state& vm_state)
 {
-	auto* launch_context = &VpData->launch_context;
+	auto* launch_context = &vm_state.launch_context;
 	auto* state = &launch_context->special_registers;
 	auto* context = &launch_context->context_frame;
 
@@ -981,7 +978,7 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	// corresponds exactly to the location where RtlCaptureContext will return
 	// to inside of ShvVpInitialize.
 	//
-	const auto stack_pointer = reinterpret_cast<uintptr_t>(VpData->stack_buffer) + KERNEL_STACK_SIZE - sizeof(CONTEXT);
+	const auto stack_pointer = reinterpret_cast<uintptr_t>(vm_state.stack_buffer) + KERNEL_STACK_SIZE - sizeof(CONTEXT);
 
 	__vmx_vmwrite(VMCS_GUEST_RSP, stack_pointer);
 	__vmx_vmwrite(VMCS_GUEST_RIP, reinterpret_cast<uintptr_t>(vm_launch));
@@ -1013,15 +1010,15 @@ void initialize_msrs(vmx::launch_context& launch_context)
 [[ noreturn ]] void launch_hypervisor(vmx::state& vm_state)
 {
 	initialize_msrs(vm_state.launch_context);
-	ShvVmxMtrrInitialize(&vm_state);
-	ShvVmxEptInitialize(&vm_state);
+	initialize_mtrr(vm_state.launch_context);
+	initialize_ept(vm_state);
 
-	if (!ShvVmxEnterRootModeOnVp(&vm_state))
+	if (!enter_root_mode_on_cpu(vm_state))
 	{
 		throw std::runtime_error("Not available");
 	}
 
-	ShvVmxSetupVmcsForVp(&vm_state);
+	setup_vmcs_for_cpu(vm_state);
 
 	auto error_code = launch_vmx();
 	throw std::runtime_error(string::va("Failed to launch vmx: %X", error_code));
