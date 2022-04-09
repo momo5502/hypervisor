@@ -546,20 +546,17 @@ ShvUtilConvertGdtEntry(
 	VmxGdtEntry->access_rights.unusable = !gdt_entry->present;
 }
 
-UINT32
-ShvUtilAdjustMsr(
-	_In_ LARGE_INTEGER ControlValue,
-	_In_ UINT32 DesiredValue
-)
+uint32_t adjust_msr(const ULARGE_INTEGER control_value, const uint64_t desired_value)
 {
 	//
 	// VMX feature/capability MSRs encode the "must be 0" bits in the high word
 	// of their value, and the "must be 1" bits in the low word of their value.
 	// Adjust any requested capability/feature based on these requirements.
 	//
-	DesiredValue &= ControlValue.HighPart;
-	DesiredValue |= ControlValue.LowPart;
-	return DesiredValue;
+        auto result = static_cast<uint32_t>(desired_value);
+	result &= control_value.HighPart;
+	result |= control_value.LowPart;
+	return result;
 }
 
 void vmx_handle_invd()
@@ -599,7 +596,7 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 	// Otherwise, issue the CPUID to the logical processor based on the indexes
 	// on the VP's GPRs.
 	//
-	__cpuidex(cpu_info, (INT32)guest_context.vp_regs->Rax, (INT32)guest_context.vp_regs->Rcx);
+	__cpuidex(cpu_info, static_cast<int32_t>(guest_context.vp_regs->Rax), static_cast<int32_t>(guest_context.vp_regs->Rcx));
 
 	//
 	// Check if this was CPUID 1h, which is the features request.
@@ -826,14 +823,13 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	ept_controls.enable_invpcid = 1;
 	ept_controls.enable_xsaves = 1;
 	__vmx_vmwrite(VMCS_CTRL_SECONDARY_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
-	              ShvUtilAdjustMsr(launch_context->msr_data[11], ept_controls.flags));
+	              adjust_msr(launch_context->msr_data[11], ept_controls.flags));
 
 	//
 	// Enable no pin-based options ourselves, but there may be some required by
 	// the processor. Use ShvUtilAdjustMsr to add those in.
 	//
-	__vmx_vmwrite(VMCS_CTRL_PIN_BASED_VM_EXECUTION_CONTROLS,
-	              ShvUtilAdjustMsr(launch_context->msr_data[13], 0));
+	__vmx_vmwrite(VMCS_CTRL_PIN_BASED_VM_EXECUTION_CONTROLS, adjust_msr(launch_context->msr_data[13], 0));
 
 	//
 	// In order for our choice of supporting RDTSCP and XSAVE/RESTORES above to
@@ -845,7 +841,7 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	procbased_ctls_register.use_msr_bitmaps = 1;
 
 	__vmx_vmwrite(VMCS_CTRL_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
-	              ShvUtilAdjustMsr(launch_context->msr_data[14],
+	  adjust_msr(launch_context->msr_data[14],
 	                               procbased_ctls_register.flags));
 
 	//
@@ -854,7 +850,7 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	ia32_vmx_exit_ctls_register exit_ctls_register{};
 	exit_ctls_register.host_address_space_size = 1;
 	__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS,
-	              ShvUtilAdjustMsr(launch_context->msr_data[15],
+	              adjust_msr(launch_context->msr_data[15],
 	                               exit_ctls_register.flags));
 
 	//
@@ -863,7 +859,7 @@ void ShvVmxSetupVmcsForVp(vmx::state* VpData)
 	ia32_vmx_entry_ctls_register entry_ctls_register{};
 	entry_ctls_register.ia32e_mode_guest = 1;
 	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS,
-	              ShvUtilAdjustMsr(launch_context->msr_data[16],
+	  adjust_msr(launch_context->msr_data[16],
 	                               entry_ctls_register.flags));
 
 	//
@@ -1025,7 +1021,7 @@ void initialize_msrs(vmx::launch_context& launch_context)
 	}
 }
 
-void launch_hypervisor(vmx::state& vm_state)
+[[ noreturn ]] void launch_hypervisor(vmx::state& vm_state)
 {
 	initialize_msrs(vm_state.launch_context);
 	ShvVmxMtrrInitialize(&vm_state);

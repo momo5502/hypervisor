@@ -7,6 +7,8 @@ project(secret LANGUAGES C CXX)
 
 ##########################################
 
+set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -33,6 +35,20 @@ include(cmake/utils.cmake)
 
 set_new_artifact_directory()
 enable_driver_support()
+
+##########################################
+
+set(OPT_DEBUG "/Od /Ob0 /Zi")
+set(OPT_RELEASE "/O2 /Ob2 /Zi")
+
+add_link_options(/DEBUG)
+
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${OPT_DEBUG}")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${OPT_DEBUG}")
+
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${OPT_RELEASE}")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${OPT_RELEASE}")
+
 
 ##########################################
 

@@ -44,7 +44,7 @@ namespace vmx
 		special_registers special_registers;
 		CONTEXT context_frame;
 		uint64_t system_directory_table_base;
-		LARGE_INTEGER msr_data[17];
+		ULARGE_INTEGER msr_data[17];
 		mtrr_range mtrr_data[16];
 		uint64_t vmx_on_physical_address;
 		uint64_t vmcs_physical_address;
