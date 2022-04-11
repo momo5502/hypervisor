@@ -219,8 +219,8 @@ void initialize_mtrr(vmx::launch_context& launch_context)
 		//
 		// Capture the value
 		//
-	  ia32_mtrr_physbase_register mtrr_base{};
-	  ia32_mtrr_physmask_register mtrr_mask{};
+		ia32_mtrr_physbase_register mtrr_base{};
+		ia32_mtrr_physmask_register mtrr_mask{};
 
 		mtrr_base.flags = __readmsr(IA32_MTRR_PHYSBASE0 + i * 2);
 		mtrr_mask.flags = __readmsr(IA32_MTRR_PHYSMASK0 + i * 2);
@@ -250,28 +250,30 @@ void initialize_mtrr(vmx::launch_context& launch_context)
 	}
 }
 
-uint32_t mtrr_adjust_effective_memory_type(	vmx::launch_context& launch_context,        const uint64_t large_page_address,	uint32_t candidate_memory_type)
+uint32_t mtrr_adjust_effective_memory_type(vmx::launch_context& launch_context, const uint64_t large_page_address,
+                                           uint32_t candidate_memory_type)
 {
 	//
 	// Loop each MTRR range
 	//
-	for (const auto& mtrr_entry : launch_context.mtrr_data) {
+	for (const auto& mtrr_entry : launch_context.mtrr_data)
+	{
 		//
 		// Check if it's active
 		//
-	    if (!mtrr_entry.enabled)
-	    {
-	      continue;
-	    }
-		  //
-		  // Check if this large page falls within the boundary. If a single
-		  // physical page (4KB) touches it, we need to override the entire 2MB.
-		  //
-		  if (((large_page_address + (_2MB - 1)) >= mtrr_entry.physical_address_min) &&
-			  (large_page_address <= mtrr_entry.physical_address_max))
-		  {
-		    candidate_memory_type = mtrr_entry.type;
-		  }
+		if (!mtrr_entry.enabled)
+		{
+			continue;
+		}
+		//
+		// Check if this large page falls within the boundary. If a single
+		// physical page (4KB) touches it, we need to override the entire 2MB.
+		//
+		if (((large_page_address + (_2MB - 1)) >= mtrr_entry.physical_address_min) &&
+			(large_page_address <= mtrr_entry.physical_address_max))
+		{
+			candidate_memory_type = mtrr_entry.type;
+		}
 	}
 
 	return candidate_memory_type;
@@ -282,10 +284,10 @@ void initialize_ept(vmx::state& vm_state)
 	//
 	// Fill out the EPML4E which covers the first 512GB of RAM
 	//
-  vm_state.epml4[0].read_access = 1;
-  vm_state.epml4[0].write_access = 1;
-  vm_state.epml4[0].execute_access = 1;
-  vm_state.epml4[0].page_frame_number = memory::get_physical_address(&vm_state.epdpt) /
+	vm_state.epml4[0].read_access = 1;
+	vm_state.epml4[0].write_access = 1;
+	vm_state.epml4[0].execute_access = 1;
+	vm_state.epml4[0].page_frame_number = memory::get_physical_address(&vm_state.epdpt) /
 		PAGE_SIZE;
 
 	//
@@ -306,7 +308,7 @@ void initialize_ept(vmx::state& vm_state)
 		//
 		// Set the page frame number of the PDE table
 		//
-	  vm_state.epdpt[i].page_frame_number = memory::get_physical_address(&vm_state.epde[i][0]) / PAGE_SIZE;
+		vm_state.epdpt[i].page_frame_number = memory::get_physical_address(&vm_state.epde[i][0]) / PAGE_SIZE;
 	}
 
 	//
@@ -330,10 +332,9 @@ void initialize_ept(vmx::state& vm_state)
 		//
 		for (auto j = 0; j < EPT_PDE_ENTRY_COUNT; j++)
 		{
-		  vm_state.epde[i][j].page_frame_number = (i * 512) + j;
-		  vm_state.epde[i][j].memory_type = mtrr_adjust_effective_memory_type(vm_state.launch_context,
-		    vm_state.epde[i][j].page_frame_number * _2MB,
-				MEMORY_TYPE_WRITE_BACK);
+			vm_state.epde[i][j].page_frame_number = (i * 512) + j;
+			vm_state.epde[i][j].memory_type = mtrr_adjust_effective_memory_type(
+				vm_state.launch_context, vm_state.epde[i][j].page_frame_number * _2MB, MEMORY_TYPE_WRITE_BACK);
 		}
 	}
 }
@@ -456,29 +457,30 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 
 vmx::gdt_entry convert_gdt_entry(const uint64_t gdt_base, const uint16_t selector_value)
 {
-  vmx::gdt_entry result{};
-  memset(&result, 0, sizeof(result));
+	vmx::gdt_entry result{};
+	memset(&result, 0, sizeof(result));
 
-  segment_selector selector{};
-  selector.flags = selector_value;
+	segment_selector selector{};
+	selector.flags = selector_value;
 
 	//
 	// Reject LDT or NULL entries
 	//
-	if (selector.flags ==  0 || selector.table)
+	if (selector.flags == 0 || selector.table)
 	{
-	  result.limit = 0;
-	  result.access_rights.flags = 0;
-	  result.base = 0;
-	  result.selector.flags = 0;
-	  result.access_rights.unusable = 1;
+		result.limit = 0;
+		result.access_rights.flags = 0;
+		result.base = 0;
+		result.selector.flags = 0;
+		result.access_rights.unusable = 1;
 		return result;
 	}
 
 	//
 	// Read the GDT entry at the given selector, masking out the RPL bits.
 	//
-  const auto* gdt_entry = reinterpret_cast<segment_descriptor_64*>(gdt_base + static_cast<uint64_t>(selector.index) * 8);
+	const auto* gdt_entry = reinterpret_cast<segment_descriptor_64*>(gdt_base + static_cast<uint64_t>(selector.index) *
+		8);
 
 	//
 	// Write the selector directly 
@@ -505,7 +507,7 @@ vmx::gdt_entry convert_gdt_entry(const uint64_t gdt_base, const uint16_t selecto
 	result.base |= static_cast<uint64_t>(gdt_entry->base_address_high) << 24;
 	if (gdt_entry->descriptor_type == 0u)
 	{
-	  result.base |= static_cast<uint64_t>(gdt_entry->base_address_upper) << 32;
+		result.base |= static_cast<uint64_t>(gdt_entry->base_address_upper) << 32;
 	}
 
 	//
@@ -539,7 +541,7 @@ uint32_t adjust_msr(const ULARGE_INTEGER control_value, const uint64_t desired_v
 	// of their value, and the "must be 1" bits in the low word of their value.
 	// Adjust any requested capability/feature based on these requirements.
 	//
-        auto result = static_cast<uint32_t>(desired_value);
+	auto result = static_cast<uint32_t>(desired_value);
 	result &= control_value.HighPart;
 	result |= control_value.LowPart;
 	return result;
@@ -582,7 +584,8 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 	// Otherwise, issue the CPUID to the logical processor based on the indexes
 	// on the VP's GPRs.
 	//
-	__cpuidex(cpu_info, static_cast<int32_t>(guest_context.vp_regs->Rax), static_cast<int32_t>(guest_context.vp_regs->Rcx));
+	__cpuidex(cpu_info, static_cast<int32_t>(guest_context.vp_regs->Rax),
+	          static_cast<int32_t>(guest_context.vp_regs->Rcx));
 
 	//
 	// Check if this was CPUID 1h, which is the features request.
@@ -827,8 +830,8 @@ void setup_vmcs_for_cpu(vmx::state& vm_state)
 	procbased_ctls_register.use_msr_bitmaps = 1;
 
 	__vmx_vmwrite(VMCS_CTRL_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
-	  adjust_msr(launch_context->msr_data[14],
-	                               procbased_ctls_register.flags));
+	              adjust_msr(launch_context->msr_data[14],
+	                         procbased_ctls_register.flags));
 
 	//
 	// Make sure to enter us in x64 mode at all times.
@@ -837,7 +840,7 @@ void setup_vmcs_for_cpu(vmx::state& vm_state)
 	exit_ctls_register.host_address_space_size = 1;
 	__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS,
 	              adjust_msr(launch_context->msr_data[15],
-	                               exit_ctls_register.flags));
+	                         exit_ctls_register.flags));
 
 	//
 	// As we exit back into the guest, make sure to exist in x64 mode as well.
@@ -845,8 +848,8 @@ void setup_vmcs_for_cpu(vmx::state& vm_state)
 	ia32_vmx_entry_ctls_register entry_ctls_register{};
 	entry_ctls_register.ia32e_mode_guest = 1;
 	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS,
-	  adjust_msr(launch_context->msr_data[16],
-	                               entry_ctls_register.flags));
+	              adjust_msr(launch_context->msr_data[16],
+	                         entry_ctls_register.flags));
 
 	//
 	// Load the CS Segment (Ring 0 Code)
