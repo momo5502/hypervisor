@@ -1094,7 +1094,7 @@ void hypervisor::free_vm_states()
 
 	for (auto i = 0u; i < this->vm_state_count_; ++i)
 	{
-		memory::free_aligned_memory(this->vm_states_[i]);
+		memory::free_aligned_object(this->vm_states_[i]);
 	}
 
 	delete[] this->vm_states_;

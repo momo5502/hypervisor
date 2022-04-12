@@ -53,6 +53,14 @@ void operator delete[](void* ptr)
 	memory::free_non_paged_memory(ptr);
 }
 
+void operator delete(void*, size_t, std::align_val_t)
+{
+}
+
+void operator delete[](void*, size_t, std::align_val_t)
+{
+}
+
 extern "C" void __std_terminate()
 {
 	KeBugCheckEx(DRIVER_VIOLATION, 14, 0, 0, 0);

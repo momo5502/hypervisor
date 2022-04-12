@@ -23,9 +23,9 @@ namespace std
 			{
 			}
 
-			Result operator()(Args ... a) const override
+			Result operator()(Args ... args) const override
 			{
-				return f_(std::forward<Args>(a)...);
+				return f_(std::forward<Args>(args)...);
 			}
 
 			F f_;

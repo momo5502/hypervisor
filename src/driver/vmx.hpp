@@ -1,4 +1,5 @@
 #pragma once
+#include "ept.hpp"
 
 #define _1GB                        (1 * 1024 * 1024 * 1024)
 #define _2MB                        (2 * 1024 * 1024)
@@ -55,7 +56,12 @@ namespace vmx
 
 	struct state
 	{
-		DECLSPEC_PAGE_ALIGN uint8_t stack_buffer[KERNEL_STACK_SIZE]{};
+		union
+		{
+			DECLSPEC_PAGE_ALIGN uint8_t stack_buffer[KERNEL_STACK_SIZE]{};
+			DECLSPEC_PAGE_ALIGN launch_context launch_context;
+		};
+
 		DECLSPEC_PAGE_ALIGN uint8_t msr_bitmap[PAGE_SIZE]{};
 		DECLSPEC_PAGE_ALIGN ept_pml4 epml4[EPT_PML4E_ENTRY_COUNT]{};
 		DECLSPEC_PAGE_ALIGN epdpte epdpt[EPT_PDPTE_ENTRY_COUNT]{};
@@ -63,7 +69,8 @@ namespace vmx
 
 		DECLSPEC_PAGE_ALIGN vmcs vmx_on{};
 		DECLSPEC_PAGE_ALIGN vmcs vmcs{};
-		DECLSPEC_PAGE_ALIGN launch_context launch_context{};
+
+		DECLSPEC_PAGE_ALIGN ept ept{};
 	};
 
 	struct gdt_entry
