@@ -44,6 +44,8 @@ namespace thread
 			KeSignalCallDpcDone(arg1);
 		}
 
+		_Function_class_(KDEFERRED_ROUTINE)
+
 		void NTAPI sequential_callback_dispatcher(struct _KDPC* /*Dpc*/,
 		                                          const PVOID param,
 		                                          const PVOID arg1,
