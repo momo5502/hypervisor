@@ -475,30 +475,30 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 	guest_context.vp_regs->Rdx = cpu_info[3];
 }
 
-void vmx_handle_xsetbv(const vmx::guest_context& guest_contex)
+void vmx_handle_xsetbv(const vmx::guest_context& guest_context)
 {
 	//
 	// Simply issue the XSETBV instruction on the native logical processor.
 	//
 
-	_xsetbv(static_cast<uint32_t>(guest_contex.vp_regs->Rcx),
-	        guest_contex.vp_regs->Rdx << 32 | guest_contex.vp_regs->Rax);
+	_xsetbv(static_cast<uint32_t>(guest_context.vp_regs->Rcx),
+	        guest_context.vp_regs->Rdx << 32 | guest_context.vp_regs->Rax);
 }
 
-void vmx_handle_vmx(vmx::guest_context& guest_contex)
+void vmx_handle_vmx(vmx::guest_context& guest_context)
 {
 	//
 	// Set the CF flag, which is how VMX instructions indicate failure
 	//
-	guest_contex.guest_e_flags |= 0x1; // VM_FAIL_INVALID
+	guest_context.guest_e_flags |= 0x1; // VM_FAIL_INVALID
 
 	//
 	// RFLAGs is actually restored from the VMCS, so update it here
 	//
-	__vmx_vmwrite(VMCS_GUEST_RFLAGS, guest_contex.guest_e_flags);
+	__vmx_vmwrite(VMCS_GUEST_RFLAGS, guest_context.guest_e_flags);
 }
 
-void vmx_dispatch_vm_exit(vmx::guest_context& guest_contex)
+void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, vmx::state& vm_state)
 {
 	//
 	// This is the generic VM-Exit handler. Decode the reason for the exit and
@@ -507,16 +507,16 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_contex)
 	// INVD, XSETBV and other VMX instructions. GETSEC cannot happen as we do
 	// not run in SMX context.
 	//
-	switch (guest_contex.exit_reason)
+	switch (guest_context.exit_reason)
 	{
 	case VMX_EXIT_REASON_EXECUTE_CPUID:
-		vmx_handle_cpuid(guest_contex);
+		vmx_handle_cpuid(guest_context);
 		break;
 	case VMX_EXIT_REASON_EXECUTE_INVD:
 		vmx_handle_invd();
 		break;
 	case VMX_EXIT_REASON_EXECUTE_XSETBV:
-		vmx_handle_xsetbv(guest_contex);
+		vmx_handle_xsetbv(guest_context);
 		break;
 	case VMX_EXIT_REASON_EXECUTE_VMCALL:
 	case VMX_EXIT_REASON_EXECUTE_VMCLEAR:
@@ -528,8 +528,10 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_contex)
 	case VMX_EXIT_REASON_EXECUTE_VMWRITE:
 	case VMX_EXIT_REASON_EXECUTE_VMXOFF:
 	case VMX_EXIT_REASON_EXECUTE_VMXON:
-		vmx_handle_vmx(guest_contex);
+		vmx_handle_vmx(guest_context);
 		break;
+	case VMX_EXIT_REASON_EPT_VIOLATION:
+		vm_state.ept.handle_violation(guest_context);
 	default:
 		break;
 	}
@@ -539,8 +541,11 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_contex)
 	// caused the exit. Since we are not doing any special handling or changing
 	// of execution, this can be done for any exit reason.
 	//
-	guest_contex.guest_rip += read_vmx(VMCS_VMEXIT_INSTRUCTION_LENGTH);
-	__vmx_vmwrite(VMCS_GUEST_RIP, guest_contex.guest_rip);
+	if (guest_context.increment_rip)
+	{
+		guest_context.guest_rip += read_vmx(VMCS_VMEXIT_INSTRUCTION_LENGTH);
+		__vmx_vmwrite(VMCS_GUEST_RIP, guest_context.guest_rip);
+	}
 }
 
 extern "C" [[ noreturn ]] void vm_exit_handler(CONTEXT* context)
@@ -557,14 +562,17 @@ extern "C" [[ noreturn ]] void vm_exit_handler(CONTEXT* context)
 	guest_context.guest_e_flags = read_vmx(VMCS_GUEST_RFLAGS);
 	guest_context.guest_rip = read_vmx(VMCS_GUEST_RIP);
 	guest_context.guest_rsp = read_vmx(VMCS_GUEST_RSP);
+	guest_context.guest_physical_address = read_vmx(VMCS_GUEST_PHYSICAL_ADDRESS);
 	guest_context.exit_reason = read_vmx(VMCS_EXIT_REASON) & 0xFFFF;
+	guest_context.exit_qualification = read_vmx(VMCS_EXIT_QUALIFICATION);
 	guest_context.vp_regs = context;
 	guest_context.exit_vm = false;
+	guest_context.increment_rip = true;
 
 	//
 	// Call the generic handler
 	//
-	vmx_dispatch_vm_exit(guest_context);
+	vmx_dispatch_vm_exit(guest_context, *vm_state);
 
 	//
 	// Did we hit the magic exit sequence, or should we resume back to the VM

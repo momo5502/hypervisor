@@ -70,7 +70,10 @@ namespace vmx
 		uintptr_t guest_rip;
 		uintptr_t guest_rsp;
 		uintptr_t guest_e_flags;
+		uintptr_t guest_physical_address;
 		uint16_t exit_reason;
+		uintptr_t exit_qualification;
 		bool exit_vm;
+		bool increment_rip;
 	};
 }
