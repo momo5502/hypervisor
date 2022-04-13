@@ -200,146 +200,6 @@ bool hypervisor::try_enable_core(const uint64_t system_directory_table_base)
 	}
 }
 
-#define MTRR_PAGE_SIZE          4096
-#define MTRR_PAGE_MASK          (~(MTRR_PAGE_SIZE-1))
-
-void initialize_mtrr(vmx::launch_context& launch_context)
-{
-	//
-	// Read the capabilities mask
-	//
-	ia32_mtrr_capabilities_register mtrr_capabilities{};
-	mtrr_capabilities.flags = __readmsr(IA32_MTRR_CAPABILITIES);
-
-	//
-	// Iterate over each variable MTRR
-	//
-	for (auto i = 0u; i < mtrr_capabilities.variable_range_count; i++)
-	{
-		//
-		// Capture the value
-		//
-		ia32_mtrr_physbase_register mtrr_base{};
-		ia32_mtrr_physmask_register mtrr_mask{};
-
-		mtrr_base.flags = __readmsr(IA32_MTRR_PHYSBASE0 + i * 2);
-		mtrr_mask.flags = __readmsr(IA32_MTRR_PHYSMASK0 + i * 2);
-
-		//
-		// Check if the MTRR is enabled
-		//
-		launch_context.mtrr_data[i].type = static_cast<uint32_t>(mtrr_base.type);
-		launch_context.mtrr_data[i].enabled = static_cast<uint32_t>(mtrr_mask.valid);
-		if (launch_context.mtrr_data[i].enabled != FALSE)
-		{
-			//
-			// Set the base
-			//
-			launch_context.mtrr_data[i].physical_address_min = mtrr_base.page_frame_number *
-				MTRR_PAGE_SIZE;
-
-			//
-			// Compute the length
-			//
-			unsigned long bit;
-			_BitScanForward64(&bit, mtrr_mask.page_frame_number * MTRR_PAGE_SIZE);
-			launch_context.mtrr_data[i].physical_address_max = launch_context.mtrr_data[i].
-				physical_address_min +
-				(1ULL << bit) - 1;
-		}
-	}
-}
-
-uint32_t mtrr_adjust_effective_memory_type(vmx::launch_context& launch_context, const uint64_t large_page_address,
-                                           uint32_t candidate_memory_type)
-{
-	//
-	// Loop each MTRR range
-	//
-	for (const auto& mtrr_entry : launch_context.mtrr_data)
-	{
-		//
-		// Check if it's active
-		//
-		if (!mtrr_entry.enabled)
-		{
-			continue;
-		}
-		//
-		// Check if this large page falls within the boundary. If a single
-		// physical page (4KB) touches it, we need to override the entire 2MB.
-		//
-		if (((large_page_address + (_2MB - 1)) >= mtrr_entry.physical_address_min) &&
-			(large_page_address <= mtrr_entry.physical_address_max))
-		{
-			candidate_memory_type = mtrr_entry.type;
-		}
-	}
-
-	return candidate_memory_type;
-}
-
-void initialize_ept(vmx::state& vm_state)
-{
-	//
-	// Fill out the EPML4E which covers the first 512GB of RAM
-	//
-	vm_state.epml4[0].read_access = 1;
-	vm_state.epml4[0].write_access = 1;
-	vm_state.epml4[0].execute_access = 1;
-	vm_state.epml4[0].page_frame_number = memory::get_physical_address(&vm_state.epdpt) /
-		PAGE_SIZE;
-
-	//
-	// Fill out a RWX PDPTE
-	//
-	epdpte temp_epdpte;
-	temp_epdpte.flags = 0;
-	temp_epdpte.read_access = 1;
-	temp_epdpte.write_access = 1;
-	temp_epdpte.execute_access = 1;
-
-	//
-	// Construct EPT identity map for every 1GB of RAM
-	//
-	__stosq(reinterpret_cast<uint64_t*>(vm_state.epdpt), temp_epdpte.flags, EPT_PDPTE_ENTRY_COUNT);
-	for (auto i = 0; i < EPT_PDPTE_ENTRY_COUNT; i++)
-	{
-		//
-		// Set the page frame number of the PDE table
-		//
-		vm_state.epdpt[i].page_frame_number = memory::get_physical_address(&vm_state.epde[i][0]) / PAGE_SIZE;
-	}
-
-	//
-	// Fill out a RWX Large PDE
-	//
-	epde_2mb temp_epde{};
-	temp_epde.flags = 0;
-	temp_epde.read_access = 1;
-	temp_epde.write_access = 1;
-	temp_epde.execute_access = 1;
-	temp_epde.large_page = 1;
-
-	//
-	// Loop every 1GB of RAM (described by the PDPTE)
-	//
-	__stosq(reinterpret_cast<uint64_t*>(vm_state.epde), temp_epde.flags, EPT_PDPTE_ENTRY_COUNT * EPT_PDE_ENTRY_COUNT);
-	for (auto i = 0; i < EPT_PDPTE_ENTRY_COUNT; i++)
-	{
-		//
-		// Construct EPT identity map for every 2MB of RAM
-		//
-		for (auto j = 0; j < EPT_PDE_ENTRY_COUNT; j++)
-		{
-			vm_state.epde[i][j].page_frame_number = (i * 512) + j;
-			vm_state.epde[i][j].memory_type = mtrr_adjust_effective_memory_type(
-				vm_state.launch_context, vm_state.epde[i][j].page_frame_number * _2MB, MEMORY_TYPE_WRITE_BACK);
-		}
-	}
-}
-
-
 bool enter_root_mode_on_cpu(vmx::state& vm_state)
 {
 	auto* launch_context = &vm_state.launch_context;
@@ -403,7 +263,7 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	launch_context->vmx_on_physical_address = memory::get_physical_address(&vm_state.vmx_on);
 	launch_context->vmcs_physical_address = memory::get_physical_address(&vm_state.vmcs);
 	launch_context->msr_bitmap_physical_address = memory::get_physical_address(vm_state.msr_bitmap);
-	launch_context->ept_pml4_physical_address = memory::get_physical_address(&vm_state.epml4);
+	launch_context->ept_pml4_physical_address = memory::get_physical_address(vm_state.ept.get_pml4());
 
 	//
 	// Update CR0 with the must-be-zero and must-be-one requirements
@@ -1013,8 +873,7 @@ void initialize_msrs(vmx::launch_context& launch_context)
 [[ noreturn ]] void launch_hypervisor(vmx::state& vm_state)
 {
 	initialize_msrs(vm_state.launch_context);
-	initialize_mtrr(vm_state.launch_context);
-	initialize_ept(vm_state);
+	vm_state.ept.initialize();
 
 	if (!enter_root_mode_on_cpu(vm_state))
 	{

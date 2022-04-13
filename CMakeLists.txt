@@ -16,6 +16,9 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 ##########################################
 
+set(WDK_WINVER "0x0603" CACHE STRING "Default WINVER for WDK targets")
+
+##########################################
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded$<$<CONFIG:Debug>:Debug>)
 
 if(MSVC)

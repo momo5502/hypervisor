@@ -1,9 +1,6 @@
 #pragma once
 #include "ept.hpp"
 
-#define _1GB                        (1 * 1024 * 1024 * 1024)
-#define _2MB                        (2 * 1024 * 1024)
-
 #define HYPERV_HYPERVISOR_PRESENT_BIT           0x80000000
 #define HYPERV_CPUID_INTERFACE                  0x40000001
 
@@ -30,23 +27,12 @@ namespace vmx
 		segment_descriptor_register_64 gdtr;
 	};
 
-	struct mtrr_range
-	{
-		uint32_t enabled;
-		uint32_t type;
-		uint64_t physical_address_min;
-		uint64_t physical_address_max;
-	};
-
-#define DECLSPEC_PAGE_ALIGN DECLSPEC_ALIGN(PAGE_SIZE)
-
 	struct launch_context
 	{
 		special_registers special_registers;
 		CONTEXT context_frame;
 		uint64_t system_directory_table_base;
 		ULARGE_INTEGER msr_data[17];
-		mtrr_range mtrr_data[16];
 		uint64_t vmx_on_physical_address;
 		uint64_t vmcs_physical_address;
 		uint64_t msr_bitmap_physical_address;
@@ -63,9 +49,6 @@ namespace vmx
 		};
 
 		DECLSPEC_PAGE_ALIGN uint8_t msr_bitmap[PAGE_SIZE]{};
-		DECLSPEC_PAGE_ALIGN ept_pml4 epml4[EPT_PML4E_ENTRY_COUNT]{};
-		DECLSPEC_PAGE_ALIGN epdpte epdpt[EPT_PDPTE_ENTRY_COUNT]{};
-		DECLSPEC_PAGE_ALIGN epde_2mb epde[EPT_PDPTE_ENTRY_COUNT][EPT_PDE_ENTRY_COUNT]{};
 
 		DECLSPEC_PAGE_ALIGN vmcs vmx_on{};
 		DECLSPEC_PAGE_ALIGN vmcs vmcs{};

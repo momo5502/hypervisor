@@ -105,6 +105,14 @@ namespace memory
 		}
 	}
 
+	void copy_physical_data(const uint64_t address, void* destination, const size_t length)
+	{
+		size_t result{};
+		MM_COPY_ADDRESS copy_address{};
+		copy_address.PhysicalAddress.QuadPart = static_cast<int64_t>(address);
+		MmCopyMemory(destination, copy_address, length,  MM_COPY_MEMORY_PHYSICAL, &result);
+	}
+
 	uint64_t query_process_physical_page(const uint32_t process_id, void* address,
 	                                             uint8_t buffer[PAGE_SIZE])
 	{

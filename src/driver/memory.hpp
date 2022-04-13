@@ -23,6 +23,8 @@ namespace memory
 	_IRQL_requires_max_(DISPATCH_LEVEL)
 	void free_non_paged_memory(void* memory);
 
+	void copy_physical_data(uint64_t address, void* destination, size_t length);
+
 	uint64_t query_process_physical_page(uint32_t process_id, void* address, uint8_t buffer[PAGE_SIZE]);
 
 	template <typename T, typename... Args>
@@ -46,4 +48,19 @@ namespace memory
 			free_aligned_memory(object);
 		}
 	}
+}
+
+inline uint64_t operator"" _kb(const uint64_t size)
+{
+	return size * 1024;
+}
+
+inline uint64_t operator"" _mb(const uint64_t size)
+{
+	return operator"" _kb(size * 1024);
+}
+
+inline uint64_t operator"" _gb(const uint64_t size)
+{
+	return operator"" _mb(size * 1024);
 }

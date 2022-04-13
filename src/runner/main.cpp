@@ -53,7 +53,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	(void)driver_device.send(HELLO_DRV_IOCTL, input);
 
 	MessageBoxA(0, "Service started!", 0, 0);
-
+	/*
 	hook_request hook_request{};
 	hook_request.process_id = GetCurrentProcessId();
 	hook_request.target_address = "My Message!";
@@ -64,6 +64,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	(void)driver_device.send(HOOK_DRV_IOCTL, input);
 
 	MessageBoxA(0, "Press ok to exit!", 0, 0);
+	*/
 }
 
 int main(const int argc, char* argv[])
