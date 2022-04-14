@@ -55,7 +55,7 @@ namespace vmx
 		void initialize();
 
 		void install_hook(PVOID TargetFunction, PVOID HookFunction, PVOID* OrigFunction);
-		void handle_violation(guest_context& guest_context);
+		void handle_violation(guest_context& guest_context) const;
 
 		pml4* get_pml4();
 		const pml4* get_pml4() const;
@@ -70,6 +70,7 @@ namespace vmx
 
 		pml2* get_pml2_entry(uint64_t physical_address);
 		pml1* get_pml1_entry(uint64_t physical_address);
+		pml1* find_pml1_table(uint64_t physical_address) const;
 
 		ept_split* allocate_ept_split();
 		ept_hook* allocate_ept_hook();

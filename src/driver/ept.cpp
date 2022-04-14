@@ -277,16 +277,6 @@ namespace vmx
 
 	void ept::install_hook(PVOID TargetFunction, PVOID HookFunction, PVOID* OrigFunction)
 	{
-		/*
-		ept_hook* NewHook;
-	EPT_PML1_ENTRY FakeEntry;
-	EPT_PML1_ENTRY OriginalEntry;
-	INVEPT_DESCRIPTOR Descriptor;
-	*/
-		/* Translate the page from a physical address to virtual so we can read its memory. 
-		 * This function will return NULL if the physical address was not already mapped in
-		 * virtual memory.
-		 */
 		const auto VirtualTarget = PAGE_ALIGN(TargetFunction);
 		const auto PhysicalAddress = memory::get_physical_address(VirtualTarget);
 
@@ -376,7 +366,7 @@ namespace vmx
 		}*/
 	}
 
-	void ept::handle_violation(guest_context& guest_context)
+	void ept::handle_violation(guest_context& guest_context) const
 	{
 		vmx_exit_qualification_ept_violation violation_qualification{};
 		violation_qualification.flags = guest_context.exit_qualification;
@@ -499,13 +489,34 @@ namespace vmx
 		}
 
 		const auto* pml2 = reinterpret_cast<pml2_ptr*>(pml2_entry);
-		const auto pml1 = static_cast<epte*>(memory::get_virtual_address(pml2->page_frame_number * PAGE_SIZE));
+		auto* pml1 = static_cast<epte*>(memory::get_virtual_address(pml2->page_frame_number * PAGE_SIZE));
+		if (!pml1)
+		{
+			pml1 = this->find_pml1_table(pml2->page_frame_number * PAGE_SIZE);
+		}
+
 		if (!pml1)
 		{
 			return nullptr;
 		}
 
 		return &pml1[ADDRMASK_EPT_PML1_INDEX(physical_address)];
+	}
+
+	pml1* ept::find_pml1_table(const uint64_t physical_address) const
+	{
+		auto* split = this->ept_splits;
+		while (split)
+		{
+			if (memory::get_physical_address(&split->pml1[0]) == physical_address)
+			{
+				return split->pml1;
+			}
+
+			split = split->next_split;
+		}
+
+		return nullptr;
 	}
 
 	ept_split* ept::allocate_ept_split()
