@@ -7,6 +7,8 @@
 
 #include <irp_data.hpp>
 
+#include "process.hpp"
+
 namespace
 {
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS not_supported_handler(PDEVICE_OBJECT /*device_object*/, const PIRP irp)
@@ -40,12 +42,26 @@ namespace
 		const auto aligned_address = address & (PAGE_SIZE - 1);
 		const auto offset = address - aligned_address;
 
-		debug_log("Original: %s\n", request->target_address);
+		debug_log("Pid: %d | Address: %p\n", request->process_id, request->target_address);
 
-		static uint8_t buffer[PAGE_SIZE * 2]{0};
-		memory::query_process_physical_page(request->process_id, reinterpret_cast<void*>(aligned_address), buffer);
+		auto current_proc = process::get_current_process();
+		if (current_proc)
+		{
+			debug_log("Current: %p\n", current_proc.get_id());
+		}
 
-		debug_log("Data: %s\n", buffer + offset);
+		//debug_log("Current: %lld\n",PsGetCurrentProcessId());
+
+		/*const auto process_handle = process::find_process_by_id(request->process_id);
+		if(process_handle && process_handle.is_alive())
+		{
+			debug_log("Bad process\n");
+			return;
+		}
+
+		process::scoped_process_attacher attacher{process_handle};
+
+		debug_log("Original: %s\n", request->target_address);*/
 	}
 
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(
@@ -68,7 +84,7 @@ namespace
 				debug_log("Hello from the Driver!\n");
 				break;
 			case HOOK_DRV_IOCTL:
-				//apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
+				apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
 				break;
 			default:
 				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);

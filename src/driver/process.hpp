@@ -19,6 +19,7 @@ namespace process
 		operator PEPROCESS() const;
 
 		bool is_alive() const;
+		HANDLE get_id() const;
 
 		const char* get_image_filename() const;
 

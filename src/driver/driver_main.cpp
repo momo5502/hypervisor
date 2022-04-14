@@ -126,7 +126,7 @@ namespace
 		};
 
 		auto* target = reinterpret_cast<uint8_t*>(&NtCreateFile);
-		if (memcmp(target, fixup, sizeof(fixup)))
+		if (memcmp(target, fixup, sizeof(fixup)) != 0)
 		{
 			debug_log("Fixup is invalid\n");
 			return nullptr;

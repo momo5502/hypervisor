@@ -192,6 +192,11 @@ void hypervisor::disable_all_ept_hooks() const
 	});
 }
 
+hypervisor* hypervisor::get_instance()
+{
+	return instance;
+}
+
 void hypervisor::enable()
 {
 	const auto cr3 = __readcr3();

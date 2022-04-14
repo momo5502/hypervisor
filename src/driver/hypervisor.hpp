@@ -22,6 +22,8 @@ public:
 	bool install_ept_hook(void* destination, const void* source, size_t length);
 	void disable_all_ept_hooks() const;
 
+	static hypervisor* get_instance();
+
 private:
 	uint32_t vm_state_count_{0};
 	vmx::state** vm_states_{nullptr};

@@ -106,9 +106,7 @@ namespace vmx
 		}
 	}
 
-	ept::ept()
-	{
-	}
+	ept::ept() = default;
 
 	ept::~ept()
 	{

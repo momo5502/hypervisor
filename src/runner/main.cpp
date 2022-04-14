@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "std_include.hpp"
 #include "finally.hpp"
 #include "driver.hpp"
@@ -52,11 +54,17 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 
 	(void)driver_device.send(HELLO_DRV_IOCTL, input);
 
-	MessageBoxA(0, "Service started!", 0, 0);
-	/*
+	std::string pid;
+
+	std::cout << "Please, enter the pid: ";
+	std::getline(std::cin, pid);
+
+	int _pid = atoi(pid.data());
+	printf("Pid was : %d\n", _pid);
+
 	hook_request hook_request{};
-	hook_request.process_id = GetCurrentProcessId();
-	hook_request.target_address = "My Message!";
+	hook_request.process_id = _pid; //GetCurrentProcessId();
+	hook_request.target_address = (void*)0x1401644A8; //"My Message!";
 
 	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
 	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
@@ -64,7 +72,6 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	(void)driver_device.send(HOOK_DRV_IOCTL, input);
 
 	MessageBoxA(0, "Press ok to exit!", 0, 0);
-	*/
 }
 
 int main(const int argc, char* argv[])

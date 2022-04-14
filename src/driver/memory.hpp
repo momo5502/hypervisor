@@ -25,8 +25,6 @@ namespace memory
 
 	void copy_physical_data(uint64_t address, void* destination, size_t length);
 
-	uint64_t query_process_physical_page(uint32_t process_id, void* address, uint8_t buffer[PAGE_SIZE]);
-
 	template <typename T, typename... Args>
 	T* allocate_aligned_object(Args ... args)
 	{

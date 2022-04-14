@@ -47,10 +47,25 @@ namespace process
 
 	bool process_handle::is_alive() const
 	{
+		if(!this->handle_)
+		{
+			return false;
+		}
+
 		LARGE_INTEGER zero_time{};
 		zero_time.QuadPart = 0;
 
 		return KeWaitForSingleObject(this->handle_, Executive, KernelMode, FALSE, &zero_time) != STATUS_WAIT_0;
+	}
+
+	HANDLE process_handle::get_id() const
+	{
+		if(!this->handle_)
+		{
+			return 0;
+		}
+
+		PsGetProcessId(this->handle_);
 	}
 
 	const char* process_handle::get_image_filename() const
@@ -77,7 +92,8 @@ namespace process
 	process_handle find_process_by_id(const uint32_t process_id)
 	{
 		PEPROCESS process{};
-		if (PsLookupProcessByProcessId(HANDLE(process_id), &process) != STATUS_SUCCESS)
+		const uint64_t process_id_long = process_id;
+		if (PsLookupProcessByProcessId(HANDLE(process_id_long), &process) != STATUS_SUCCESS)
 		{
 			return {};
 		}
