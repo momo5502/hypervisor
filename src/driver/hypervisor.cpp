@@ -159,6 +159,39 @@ bool hypervisor::is_enabled() const
 	return is_hypervisor_present();
 }
 
+bool hypervisor::install_ept_hook(void* destination, const void* source, const size_t length)
+{
+	volatile long failures = 0;
+	thread::dispatch_on_all_cores([&]()
+	{
+		if (!this->try_install_ept_hook_on_core(destination, source, length))
+		{
+			InterlockedIncrement(&failures);
+		}
+	});
+
+	return failures == 0;
+}
+
+void hypervisor::disable_all_ept_hooks() const
+{
+	thread::dispatch_on_all_cores([&]()
+	{
+		auto* vm_state = this->get_current_vm_state();
+		if (!vm_state)
+		{
+			return;
+		}
+
+		vm_state->ept.disable_all_hooks();
+
+		if (this->is_enabled())
+		{
+			vm_state->ept.invalidate();
+		}
+	});
+}
+
 void hypervisor::enable()
 {
 	const auto cr3 = __readcr3();
@@ -263,7 +296,6 @@ bool enter_root_mode_on_cpu(vmx::state& vm_state)
 	launch_context->vmx_on_physical_address = memory::get_physical_address(&vm_state.vmx_on);
 	launch_context->vmcs_physical_address = memory::get_physical_address(&vm_state.vmcs);
 	launch_context->msr_bitmap_physical_address = memory::get_physical_address(vm_state.msr_bitmap);
-	launch_context->ept_pml4_physical_address = memory::get_physical_address(vm_state.ept.get_pml4());
 
 	//
 	// Update CR0 with the must-be-zero and must-be-one requirements
@@ -498,7 +530,7 @@ void vmx_handle_vmx(vmx::guest_context& guest_context)
 	__vmx_vmwrite(VMCS_GUEST_RFLAGS, guest_context.guest_e_flags);
 }
 
-void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, vmx::state& vm_state)
+void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, const vmx::state& vm_state)
 {
 	//
 	// This is the generic VM-Exit handler. Decode the reason for the exit and
@@ -532,6 +564,10 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, vmx::state& vm_stat
 		break;
 	case VMX_EXIT_REASON_EPT_VIOLATION:
 		vm_state.ept.handle_violation(guest_context);
+		break;
+	case VMX_EXIT_REASON_EPT_MISCONFIGURATION:
+		vm_state.ept.handle_misconfiguration(guest_context);
+		break;
 	default:
 		break;
 	}
@@ -650,12 +686,7 @@ void setup_vmcs_for_cpu(vmx::state& vm_state)
 	//
 	if (launch_context->ept_controls.flags != 0)
 	{
-		ept_pointer vmx_eptp{};
-		vmx_eptp.flags = 0;
-		vmx_eptp.page_walk_length = 3;
-		vmx_eptp.memory_type = MEMORY_TYPE_WRITE_BACK;
-		vmx_eptp.page_frame_number = launch_context->ept_pml4_physical_address / PAGE_SIZE;
-
+		const auto vmx_eptp = vm_state.ept.get_ept_pointer();
 		__vmx_vmwrite(VMCS_CTRL_EPT_POINTER, vmx_eptp.flags);
 		__vmx_vmwrite(VMCS_CTRL_VIRTUAL_PROCESSOR_IDENTIFIER, 1);
 	}
@@ -969,10 +1000,45 @@ void hypervisor::free_vm_states()
 	this->vm_state_count_ = 0;
 }
 
+bool hypervisor::try_install_ept_hook_on_core(void* destination, const void* source, const size_t length)
+{
+	try
+	{
+		this->install_ept_hook_on_core(destination, source, length);
+		return true;
+	}
+	catch (std::exception& e)
+	{
+		debug_log("Failed to install ept hook on core %d: %s\n", thread::get_processor_index(), e.what());
+		return false;
+	}
+	catch (...)
+	{
+		debug_log("Failed to install ept hook on core %d.\n", thread::get_processor_index());
+		return false;
+	}
+}
+
+void hypervisor::install_ept_hook_on_core(void* destination, const void* source, const size_t length)
+{
+	auto* vm_state = this->get_current_vm_state();
+	if (!vm_state)
+	{
+		throw std::runtime_error("No vm state available");
+	}
+
+	vm_state->ept.install_hook(destination, source, length);
+
+	if (this->is_enabled())
+	{
+		vm_state->ept.invalidate();
+	}
+}
+
 vmx::state* hypervisor::get_current_vm_state() const
 {
 	const auto current_core = thread::get_processor_index();
-	if (current_core >= this->vm_state_count_)
+	if (!this->vm_states_ || current_core >= this->vm_state_count_)
 	{
 		return nullptr;
 	}

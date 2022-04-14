@@ -5,8 +5,8 @@
 
 namespace process
 {
-	process_handle::process_handle(const PEPROCESS handle)
-		: handle_(handle)
+	process_handle::process_handle(const PEPROCESS handle, const bool own)
+		: own_(own), handle_(handle)
 	{
 	}
 
@@ -26,7 +26,9 @@ namespace process
 		if (this != &obj)
 		{
 			this->release();
+			this->own_ = obj.own_;
 			this->handle_ = obj.handle_;
+			obj.own_ = false;
 			obj.handle_ = nullptr;
 		}
 
@@ -51,13 +53,25 @@ namespace process
 		return KeWaitForSingleObject(this->handle_, Executive, KernelMode, FALSE, &zero_time) != STATUS_WAIT_0;
 	}
 
+	const char* process_handle::get_image_filename() const
+	{
+		if (!this->handle_)
+		{
+			return nullptr;
+		}
+
+		return PsGetProcessImageFileName(this->handle_);
+	}
+
 	void process_handle::release()
 	{
-		if (this->handle_)
+		if (this->own_ && this->handle_)
 		{
 			ObDereferenceObject(this->handle_);
-			this->handle_ = nullptr;
 		}
+
+		this->handle_ = nullptr;
+		this->own_ = false;
 	}
 
 	process_handle find_process_by_id(const uint32_t process_id)
@@ -68,7 +82,12 @@ namespace process
 			return {};
 		}
 
-		return process_handle{process};
+		return process_handle{process, true};
+	}
+
+	process_handle get_current_process()
+	{
+		return process_handle{PsGetCurrentProcess(), false};
 	}
 
 	scoped_process_attacher::scoped_process_attacher(const process_handle& process)

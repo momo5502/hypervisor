@@ -36,7 +36,6 @@ namespace vmx
 		uint64_t vmx_on_physical_address;
 		uint64_t vmcs_physical_address;
 		uint64_t msr_bitmap_physical_address;
-		uint64_t ept_pml4_physical_address;
 		ia32_vmx_procbased_ctls2_register ept_controls;
 	};
 

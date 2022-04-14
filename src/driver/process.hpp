@@ -6,7 +6,7 @@ namespace process
 	{
 	public:
 		process_handle() = default;
-		process_handle(PEPROCESS handle);
+		process_handle(PEPROCESS handle, bool own = true);
 		~process_handle();
 
 		process_handle(process_handle&& obj) noexcept;
@@ -20,13 +20,17 @@ namespace process
 
 		bool is_alive() const;
 
+		const char* get_image_filename() const;
+
 	private:
+		bool own_{true};
 		PEPROCESS handle_{nullptr};
 
 		void release();
 	};
 
 	process_handle find_process_by_id(uint32_t process_id);
+	process_handle get_current_process();
 
 	class scoped_process_attacher
 	{

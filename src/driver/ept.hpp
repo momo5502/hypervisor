@@ -32,10 +32,9 @@ namespace vmx
 
 		pml1* target_page{};
 		pml1 original_entry{};
-		pml1 shadow_entry{};
-		pml1 hooked_entry{};
+		pml1 execute_entry{};
+		pml1 readwrite_entry{};
 
-		uint8_t* trampoline{nullptr};
 		ept_hook* next_hook{nullptr};
 	};
 
@@ -54,11 +53,14 @@ namespace vmx
 
 		void initialize();
 
-		void install_hook(PVOID TargetFunction, PVOID HookFunction, PVOID* OrigFunction);
-		void handle_violation(guest_context& guest_context) const;
+		void install_hook(void* destination, const void* source, size_t length);
+		void disable_all_hooks() const;
 
-		pml4* get_pml4();
-		const pml4* get_pml4() const;
+		void handle_violation(guest_context& guest_context) const;
+		void handle_misconfiguration(guest_context& guest_context) const;
+
+		ept_pointer get_ept_pointer() const;
+		void invalidate() const;
 
 	private:
 		DECLSPEC_PAGE_ALIGN pml4 epml4[EPT_PML4E_ENTRY_COUNT]{};
@@ -74,7 +76,12 @@ namespace vmx
 
 		ept_split* allocate_ept_split();
 		ept_hook* allocate_ept_hook();
+		ept_hook* find_ept_hook(uint64_t physical_address) const;
+
+		ept_hook* get_or_create_ept_hook(void* destination);
 
 		void split_large_page(uint64_t physical_address);
+
+		void install_page_hook(void* destination, const void* source, size_t length);
 	};
 }

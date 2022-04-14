@@ -24,6 +24,13 @@ LEAF_ENTRY __lgdt, _TEXT$00
 LEAF_END __lgdt, _TEXT$00
 
 ; -----------------------------------------------------
+
+LEAF_ENTRY __invept, _TEXT$00
+    invept rcx, OWORD PTR [rdx]
+    ret
+LEAF_END __invept, _TEXT$00
+
+; -----------------------------------------------------
     
 LEAF_ENTRY restore_context, _TEXT$00
     movaps  xmm0, CxXmm0[rcx]

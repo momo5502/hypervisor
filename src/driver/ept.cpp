@@ -1,7 +1,7 @@
 #include "std_include.hpp"
 #include "ept.hpp"
 
-#include "logging.hpp"
+#include "assembly.hpp"
 #include "memory.hpp"
 #include "vmx.hpp"
 
@@ -104,151 +104,6 @@ namespace vmx
 
 			return candidate_memory_type;
 		}
-
-		NTSTATUS (*NtCreateFileOrig)(
-			PHANDLE FileHandle,
-			ACCESS_MASK DesiredAccess,
-			POBJECT_ATTRIBUTES ObjectAttributes,
-			PIO_STATUS_BLOCK IoStatusBlock,
-			PLARGE_INTEGER AllocationSize,
-			ULONG FileAttributes,
-			ULONG ShareAccess,
-			ULONG CreateDisposition,
-			ULONG CreateOptions,
-			PVOID EaBuffer,
-			ULONG EaLength
-		);
-
-		NTSTATUS NtCreateFileHook(
-			PHANDLE FileHandle,
-			ACCESS_MASK DesiredAccess,
-			POBJECT_ATTRIBUTES ObjectAttributes,
-			PIO_STATUS_BLOCK IoStatusBlock,
-			PLARGE_INTEGER AllocationSize,
-			ULONG FileAttributes,
-			ULONG ShareAccess,
-			ULONG CreateDisposition,
-			ULONG CreateOptions,
-			PVOID EaBuffer,
-			ULONG EaLength
-		)
-		{
-			static WCHAR BlockedFileName[] = L"test.txt";
-			static SIZE_T BlockedFileNameLength = (sizeof(BlockedFileName) / sizeof(BlockedFileName[0])) - 1;
-
-			PWCH NameBuffer;
-			USHORT NameLength;
-
-			__try
-			{
-				ProbeForRead(ObjectAttributes, sizeof(OBJECT_ATTRIBUTES), 1);
-				ProbeForRead(ObjectAttributes->ObjectName, sizeof(UNICODE_STRING), 1);
-
-				NameBuffer = ObjectAttributes->ObjectName->Buffer;
-				NameLength = ObjectAttributes->ObjectName->Length;
-
-				ProbeForRead(NameBuffer, NameLength, 1);
-
-				/* Convert to length in WCHARs */
-				NameLength /= sizeof(WCHAR);
-
-				/* Does the file path (ignoring case and null terminator) end with our blocked file name? */
-				if (NameLength >= BlockedFileNameLength &&
-					_wcsnicmp(&NameBuffer[NameLength - BlockedFileNameLength], BlockedFileName,
-					          BlockedFileNameLength) == 0)
-				{
-					return STATUS_ACCESS_DENIED;
-				}
-			}
-			__except (EXCEPTION_EXECUTE_HANDLER)
-			{
-				NOTHING;
-			}
-
-			return NtCreateFileOrig(FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock, AllocationSize,
-			                        FileAttributes,
-			                        ShareAccess, CreateDisposition, CreateOptions, EaBuffer, EaLength);
-		}
-
-		VOID HvEptHookWriteAbsoluteJump(uint8_t* TargetBuffer, SIZE_T TargetAddress)
-		{
-			/**
-			 *   Use 'push ret' instead of 'jmp qword[rip+0]',
-			 *   Because 'jmp qword[rip+0]' will read hooked page 8bytes.
-			 *
-			 *   14 bytes hook:
-			 *   0x68 0x12345678 ......................push 'low 32bit of TargetAddress'
-			 *   0xC7 0x44 0x24 0x04 0x12345678........mov dword[rsp + 4], 'high 32bit of TargetAddress'
-			 *   0xC3..................................ret
-			 */
-
-			UINT32 Low32;
-			UINT32 High32;
-
-			Low32 = (UINT32)TargetAddress;
-			High32 = (UINT32)(TargetAddress >> 32);
-
-			/* push 'low 32bit of TargetAddress' */
-			TargetBuffer[0] = 0x68;
-			*((UINT32*)&TargetBuffer[1]) = Low32;
-
-			/* mov dword[rsp + 4], 'high 32bit of TargetAddress' */
-			*((UINT32*)&TargetBuffer[5]) = 0x042444C7;
-			*((UINT32*)&TargetBuffer[9]) = High32;
-
-			/* ret */
-			TargetBuffer[13] = 0xC3;
-		}
-
-		bool HvEptHookInstructionMemory(ept_hook* Hook, PVOID TargetFunction, PVOID HookFunction,
-		                                PVOID* OrigFunction)
-		{
-			SIZE_T OffsetIntoPage;
-
-			OffsetIntoPage = ADDRMASK_EPT_PML1_OFFSET((SIZE_T)TargetFunction);
-
-			if ((OffsetIntoPage + 14) > PAGE_SIZE - 1)
-			{
-				debug_log(
-					"Function extends past a page boundary. We just don't have the technology to solve this.....\n");
-				return FALSE;
-			}
-
-			const uint8_t fixup[] = {
-				0x48, 0x81, 0xEC, 0x88, 0x00, 0x00, 0x00, 0x33, 0xC0, 0x48, 0x89, 0x44, 0x24, 0x78
-			};
-
-			//HvUtilLogDebug("Number of bytes of instruction mem: %d\n", SizeOfHookedInstructions);
-
-			/* Build a trampoline */
-
-			/* Allocate some executable memory for the trampoline */
-			Hook->trampoline = (uint8_t*)memory::allocate_non_paged_memory(sizeof(fixup) + 14);
-
-			if (!Hook->trampoline)
-			{
-				debug_log("Could not allocate trampoline function buffer.\n");
-				return FALSE;
-			}
-
-			/* Copy the trampoline instructions in. */
-			RtlCopyMemory(Hook->trampoline, TargetFunction, sizeof(fixup));
-
-			/* Add the absolute jump back to the original function. */
-			HvEptHookWriteAbsoluteJump((&Hook->trampoline[sizeof(fixup)]),
-			                           (SIZE_T)TargetFunction + sizeof(fixup));
-
-			debug_log("Trampoline: 0x%llx\n", Hook->trampoline);
-			debug_log("HookFunction: 0x%llx\n", HookFunction);
-
-			/* Let the hook function call the original function */
-			*OrigFunction = Hook->trampoline;
-
-			/* Write the absolute jump to our shadow page memory to jump to our hook. */
-			HvEptHookWriteAbsoluteJump(&Hook->fake_page[OffsetIntoPage], (SIZE_T)HookFunction);
-
-			return TRUE;
-		}
 	}
 
 	ept::ept()
@@ -270,100 +125,47 @@ namespace vmx
 		{
 			auto* current_hook = hook;
 			hook = hook->next_hook;
-			memory::free_non_paged_memory(current_hook->trampoline);
 			memory::free_aligned_object(current_hook);
 		}
 	}
 
-	void ept::install_hook(PVOID TargetFunction, PVOID HookFunction, PVOID* OrigFunction)
+	void ept::install_page_hook(void* destination, const void* source, const size_t length)
 	{
-		const auto VirtualTarget = PAGE_ALIGN(TargetFunction);
-		const auto PhysicalAddress = memory::get_physical_address(VirtualTarget);
+		auto* hook = this->get_or_create_ept_hook(destination);
 
-		if (!PhysicalAddress)
+		const auto page_offset = ADDRMASK_EPT_PML1_OFFSET(reinterpret_cast<uint64_t>(destination));
+		memcpy(hook->fake_page + page_offset, source, length);
+	}
+
+	void ept::install_hook(void* destination, const void* source, const size_t length)
+	{
+		auto current_destination = reinterpret_cast<uint64_t>(destination);
+		auto current_source = reinterpret_cast<uint64_t>(source);
+		auto current_length = length;
+
+		while (current_length != 0)
 		{
-			debug_log("HvEptAddPageHook: Target address could not be mapped to physical memory!\n");
-			return;
+			const auto page_offset = ADDRMASK_EPT_PML1_OFFSET(current_destination);
+			const auto page_remaining = PAGE_SIZE - page_offset;
+			const auto data_to_write = min(page_remaining, current_length);
+
+			this->install_page_hook(reinterpret_cast<void*>(current_destination),
+			                        reinterpret_cast<const void*>(current_source), data_to_write);
+
+			current_length -= data_to_write;
+			current_destination += data_to_write;
+			current_source += data_to_write;
 		}
+	}
 
-		/* Create a hook object*/
-		auto* NewHook = this->allocate_ept_hook();
-
-		if (!NewHook)
+	void ept::disable_all_hooks() const
+	{
+		auto* hook = this->ept_hooks;
+		while (hook)
 		{
-			debug_log("HvEptAddPageHook: Could not allocate memory for new hook.\n");
-			return;
+			hook->target_page->flags = hook->original_entry.flags;
+			hook = hook->next_hook;
 		}
-
-		/* 
-		 * Ensure the page is split into 512 4096 byte page entries. We can only hook a 4096 byte page, not a 2MB page.
-		 * This is due to performance hit we would get from hooking a 2MB page.
-		 */
-		this->split_large_page(PhysicalAddress);
-		RtlCopyMemory(&NewHook->fake_page[0], VirtualTarget, PAGE_SIZE);
-
-		/* Base address of the 4096 page. */
-		NewHook->physical_base_address = (SIZE_T)PAGE_ALIGN(PhysicalAddress);
-
-		/* Pointer to the page entry in the page table. */
-		NewHook->target_page = this->get_pml1_entry(PhysicalAddress);
-
-		/* Ensure the target is valid. */
-		if (!NewHook->target_page)
-		{
-			debug_log("HvEptAddPageHook: Failed to get PML1 entry for target address.\n");
-			return;
-		}
-
-		/* Save the original permissions of the page */
-		NewHook->original_entry = *NewHook->target_page;
-		auto OriginalEntry = *NewHook->target_page;
-
-		/* Setup the new fake page table entry */
-		pml1 FakeEntry{};
-		FakeEntry.flags = 0;
-
-		/* We want this page to raise an EPT violation on RW so we can handle by swapping in the original page. */
-		FakeEntry.read_access = 0;
-		FakeEntry.write_access = 0;
-		FakeEntry.execute_access = 1;
-
-		/* Point to our fake page we just made */
-		FakeEntry.page_frame_number = memory::get_physical_address(&NewHook->fake_page) / PAGE_SIZE;
-
-		/* Save a copy of the fake entry. */
-		NewHook->shadow_entry.flags = FakeEntry.flags;
-
-		/* 
-		 * Lastly, mark the entry in the table as no execute. This will cause the next time that an instruction is
-		 * fetched from this page to cause an EPT violation exit. This will allow us to swap in the fake page with our
-		 * hook.
-		 */
-		OriginalEntry.read_access = 1;
-		OriginalEntry.write_access = 1;
-		OriginalEntry.execute_access = 0;
-
-		/* The hooked entry will be swapped in first. */
-		NewHook->hooked_entry.flags = OriginalEntry.flags;
-
-		if (!HvEptHookInstructionMemory(NewHook, TargetFunction, HookFunction, OrigFunction))
-		{
-			debug_log("HvEptAddPageHook: Could not build hook.\n");
-			return;
-		}
-
-		/* Apply the hook to EPT */
-		NewHook->target_page->flags = OriginalEntry.flags;
-
-		/*
-		 * Invalidate the entry in the TLB caches so it will not conflict with the actual paging structure.
-		 */
-		/*if (ProcessorContext->HasLaunched)
-		{
-			Descriptor.EptPointer = ProcessorContext->EptPointer.Flags;
-			Descriptor.Reserved = 0;
-			__invept(1, &Descriptor);
-		}*/
 	}
 
 	void ept::handle_violation(guest_context& guest_context) const
@@ -394,16 +196,22 @@ namespace vmx
 
 		if (!violation_qualification.ept_executable && violation_qualification.execute_access)
 		{
-			hook->target_page->flags = hook->shadow_entry.flags;
+			hook->target_page->flags = hook->execute_entry.flags;
 			guest_context.increment_rip = false;
 		}
 
 		if (violation_qualification.ept_executable && (violation_qualification.read_access || violation_qualification.
 			write_access))
 		{
-			hook->target_page->flags = hook->hooked_entry.flags;
+			hook->target_page->flags = hook->readwrite_entry.flags;
 			guest_context.increment_rip = false;
 		}
+	}
+
+	void ept::handle_misconfiguration(guest_context& guest_context) const
+	{
+		guest_context.increment_rip = false;
+		guest_context.exit_vm = true;
 	}
 
 	void ept::initialize()
@@ -452,18 +260,30 @@ namespace vmx
 					mtrr_data, this->epde[i][j].page_frame_number * 2_mb, MEMORY_TYPE_WRITE_BACK);
 			}
 		}
-
-		this->install_hook((PVOID)NtCreateFile, (PVOID)NtCreateFileHook, (PVOID*)&NtCreateFileOrig);
 	}
 
-	ept_pml4* ept::get_pml4()
+	ept_pointer ept::get_ept_pointer() const
 	{
-		return this->epml4;
+		const auto ept_pml4_physical_address = memory::get_physical_address(const_cast<pml4*>(&this->epml4[0]));
+
+		ept_pointer vmx_eptp{};
+		vmx_eptp.flags = 0;
+		vmx_eptp.page_walk_length = 3;
+		vmx_eptp.memory_type = MEMORY_TYPE_WRITE_BACK;
+		vmx_eptp.page_frame_number = ept_pml4_physical_address / PAGE_SIZE;
+
+		return vmx_eptp;
 	}
 
-	const ept_pml4* ept::get_pml4() const
+	void ept::invalidate() const
 	{
-		return this->epml4;
+		const auto ept_pointer = this->get_ept_pointer();
+
+		invept_descriptor descriptor{};
+		descriptor.ept_pointer = ept_pointer.flags;
+		descriptor.reserved = 0;
+
+		__invept(1, &descriptor);
 	}
 
 	pml2* ept::get_pml2_entry(const uint64_t physical_address)
@@ -543,6 +363,80 @@ namespace vmx
 
 		hook->next_hook = this->ept_hooks;
 		this->ept_hooks = hook;
+
+		return hook;
+	}
+
+	ept_hook* ept::find_ept_hook(const uint64_t physical_address) const
+	{
+		auto* hook = this->ept_hooks;
+		while (hook)
+		{
+			if (hook->physical_base_address == physical_address)
+			{
+				return hook;
+			}
+
+			hook = hook->next_hook;
+		}
+
+		return nullptr;
+	}
+
+	ept_hook* ept::get_or_create_ept_hook(void* destination)
+	{
+		const auto virtual_target = PAGE_ALIGN(destination);
+		const auto physical_address = memory::get_physical_address(virtual_target);
+
+		if (!physical_address)
+		{
+			throw std::runtime_error("No physical address for destination");
+		}
+
+		const auto physical_base_address = reinterpret_cast<uint64_t>(PAGE_ALIGN(physical_address));
+		auto* hook = this->find_ept_hook(physical_base_address);
+		if (hook)
+		{
+			if (hook->target_page->flags == hook->original_entry.flags)
+			{
+				hook->target_page->flags = hook->readwrite_entry.flags;
+			}
+
+			return hook;
+		}
+
+		hook = this->allocate_ept_hook();
+
+		if (!hook)
+		{
+			throw std::runtime_error("Failed to allocate hook");
+		}
+
+		this->split_large_page(physical_address);
+
+		memcpy(&hook->fake_page[0], virtual_target, PAGE_SIZE);
+		hook->physical_base_address = physical_base_address;
+
+		hook->target_page = this->get_pml1_entry(physical_address);
+		if (!hook->target_page)
+		{
+			throw std::runtime_error("Failed to get PML1 entry for target address");
+		}
+
+		hook->original_entry = *hook->target_page;
+		hook->readwrite_entry = hook->original_entry;
+
+		hook->readwrite_entry.read_access = 1;
+		hook->readwrite_entry.write_access = 1;
+		hook->readwrite_entry.execute_access = 0;
+
+		hook->execute_entry.flags = 0;
+		hook->execute_entry.read_access = 0;
+		hook->execute_entry.write_access = 0;
+		hook->execute_entry.execute_access = 1;
+		hook->execute_entry.page_frame_number = memory::get_physical_address(&hook->fake_page) / PAGE_SIZE;
+
+		hook->target_page->flags = hook->readwrite_entry.flags;
 
 		return hook;
 	}

@@ -19,6 +19,9 @@ public:
 
 	bool is_enabled() const;
 
+	bool install_ept_hook(void* destination, const void* source, size_t length);
+	void disable_all_ept_hooks() const;
+
 private:
 	uint32_t vm_state_count_{0};
 	vmx::state** vm_states_{nullptr};
@@ -29,6 +32,9 @@ private:
 
 	void allocate_vm_states();
 	void free_vm_states();
+
+	bool try_install_ept_hook_on_core(void* destination, const void* source, size_t length);
+	void install_ept_hook_on_core(void* destination, const void* source, size_t length);
 
 	vmx::state* get_current_vm_state() const;
 };

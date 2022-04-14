@@ -116,6 +116,14 @@ PsGetProcessPeb(
 	IN PEPROCESS Process
 );
 
+	// ----------------------------------------
+
+NTKERNELAPI
+PCSTR
+PsGetProcessImageFileName(
+	__in PEPROCESS Process
+);
+
 // ----------------------------------------
 
 __kernel_entry NTSYSCALLAPI
