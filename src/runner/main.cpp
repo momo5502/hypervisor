@@ -46,6 +46,8 @@ std::filesystem::path get_current_path()
 
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
+	printf("Pid: %lu\n", GetCurrentProcessId());
+
 	driver driver{get_current_path() / "driver.sys", "MomoLul"};
 	driver_device driver_device{"\\\\.\\HelloDev"};
 

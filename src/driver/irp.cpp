@@ -44,24 +44,21 @@ namespace
 
 		debug_log("Pid: %d | Address: %p\n", request->process_id, request->target_address);
 
-		auto current_proc = process::get_current_process();
-		if (current_proc)
-		{
-			debug_log("Current: %p\n", current_proc.get_id());
-		}
-
-		//debug_log("Current: %lld\n",PsGetCurrentProcessId());
-
-		/*const auto process_handle = process::find_process_by_id(request->process_id);
-		if(process_handle && process_handle.is_alive())
+		const auto process_handle = process::find_process_by_id(request->process_id);
+		if (!process_handle || !process_handle.is_alive())
 		{
 			debug_log("Bad process\n");
 			return;
 		}
 
-		process::scoped_process_attacher attacher{process_handle};
+		const auto name = process_handle.get_image_filename();
+		if (name)
+		{
+			debug_log("Attaching to %s\n", name);
+		}
 
-		debug_log("Original: %s\n", request->target_address);*/
+		//process::scoped_process_attacher attacher{process_handle};
+		//debug_log("Original: %s\n", request->target_address);
 	}
 
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(

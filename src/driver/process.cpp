@@ -58,14 +58,14 @@ namespace process
 		return KeWaitForSingleObject(this->handle_, Executive, KernelMode, FALSE, &zero_time) != STATUS_WAIT_0;
 	}
 
-	HANDLE process_handle::get_id() const
+	uint32_t process_handle::get_id() const
 	{
 		if(!this->handle_)
 		{
 			return 0;
 		}
 
-		PsGetProcessId(this->handle_);
+		return uint32_t(uint64_t(PsGetProcessId(this->handle_)));
 	}
 
 	const char* process_handle::get_image_filename() const
