@@ -135,7 +135,7 @@ namespace vmx
 		memcpy(hook->fake_page + page_offset, source, length);
 	}
 
-	void ept::install_hook(void* destination, const void* source, const size_t length)
+	void ept::install_hook(const void* destination, const void* source, const size_t length)
 	{
 		auto current_destination = reinterpret_cast<uint64_t>(destination);
 		auto current_source = reinterpret_cast<uint64_t>(source);

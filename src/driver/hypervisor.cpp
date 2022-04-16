@@ -159,7 +159,7 @@ bool hypervisor::is_enabled() const
 	return is_hypervisor_present();
 }
 
-bool hypervisor::install_ept_hook(void* destination, const void* source, const size_t length)
+bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length)
 {
 	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]()
@@ -1005,7 +1005,7 @@ void hypervisor::free_vm_states()
 	this->vm_state_count_ = 0;
 }
 
-bool hypervisor::try_install_ept_hook_on_core(void* destination, const void* source, const size_t length)
+bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length)
 {
 	try
 	{
@@ -1024,7 +1024,7 @@ bool hypervisor::try_install_ept_hook_on_core(void* destination, const void* sou
 	}
 }
 
-void hypervisor::install_ept_hook_on_core(void* destination, const void* source, const size_t length)
+void hypervisor::install_ept_hook_on_core(const void* destination, const void* source, const size_t length)
 {
 	auto* vm_state = this->get_current_vm_state();
 	if (!vm_state)

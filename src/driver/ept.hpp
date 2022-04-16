@@ -53,7 +53,7 @@ namespace vmx
 
 		void initialize();
 
-		void install_hook(void* destination, const void* source, size_t length);
+		void install_hook(const void* destination, const void* source, size_t length);
 		void disable_all_hooks() const;
 
 		void handle_violation(guest_context& guest_context) const;

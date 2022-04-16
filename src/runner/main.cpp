@@ -66,7 +66,13 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 
 	hook_request hook_request{};
 	hook_request.process_id = _pid; //GetCurrentProcessId();
-	hook_request.target_address = (void*)0x1401644A8; //"My Message!";
+	hook_request.target_address = (void*)0x14007DCF7; //"My Message!";
+
+	uint8_t buffer[1];
+	buffer[0] = 0xEB;
+
+	hook_request.source_data = buffer;
+	hook_request.source_data_size = 1;
 
 	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
 	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));

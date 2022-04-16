@@ -8,6 +8,8 @@
 #include <irp_data.hpp>
 
 #include "process.hpp"
+#include "thread.hpp"
+#include "hypervisor.hpp"
 
 namespace
 {
@@ -38,27 +40,55 @@ namespace
 	// TODO: This is vulnerable as fuck. Optimize!
 	void apply_hook(hook_request* request)
 	{
-		const auto address = reinterpret_cast<uint64_t>(request->target_address);
-		const auto aligned_address = address & (PAGE_SIZE - 1);
-		const auto offset = address - aligned_address;
-
-		debug_log("Pid: %d | Address: %p\n", request->process_id, request->target_address);
-
-		const auto process_handle = process::find_process_by_id(request->process_id);
-		if (!process_handle || !process_handle.is_alive())
+		thread::kernel_thread t([r = *request]()
 		{
-			debug_log("Bad process\n");
-			return;
-		}
+			debug_log("Pid: %d | Address: %p\n", r.process_id, r.target_address);
 
-		const auto name = process_handle.get_image_filename();
-		if (name)
-		{
-			debug_log("Attaching to %s\n", name);
-		}
+			const auto process_handle = process::find_process_by_id(r.process_id);
+			if (!process_handle || !process_handle.is_alive())
+			{
+				debug_log("Bad process\n");
+				return;
+			}
 
-		//process::scoped_process_attacher attacher{process_handle};
-		//debug_log("Original: %s\n", request->target_address);
+			const auto name = process_handle.get_image_filename();
+			if (name)
+			{
+				debug_log("Attaching to %s\n", name);
+			}
+
+			debug_log("Level: %d\n", static_cast<int>(KeGetCurrentIrql()));
+
+			/*
+			auto buffer = new uint8_t[r.source_data_size];
+			if (!buffer)
+			{
+				debug_log("Failed to allocate buffer\n");
+				return;
+			}
+
+			auto destructor = utils::finally([buffer]()
+			{
+				delete[] buffer;
+			});
+
+			memcpy(buffer, r.source_data, r.source_data_size);
+			*/
+
+			process::scoped_process_attacher attacher{process_handle};
+
+			debug_log("Original: %p\n", r.target_address);
+
+			uint8_t buffer = 0xEB;
+
+			//hypervisor::get_instance()->install_ept_hook(r.target_address, buffer, r.source_data_size);
+			hypervisor::get_instance()->install_ept_hook(r.target_address, &buffer, 1);
+
+			debug_log("Done1\n");
+		});
+
+		t.join();
+		debug_log("Done\n");
 	}
 
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(
@@ -81,6 +111,7 @@ namespace
 				debug_log("Hello from the Driver!\n");
 				break;
 			case HOOK_DRV_IOCTL:
+
 				apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
 				break;
 			default:
