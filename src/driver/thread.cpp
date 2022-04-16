@@ -2,6 +2,7 @@
 #include "std_include.hpp"
 #include "logging.hpp"
 #include "exception.hpp"
+#include "finally.hpp"
 
 namespace thread
 {
@@ -65,6 +66,93 @@ namespace thread
 			}
 
 			KeSignalCallDpcDone(arg1);
+		}
+
+		void thread_starter(void* context)
+		{
+			auto* function_ptr = static_cast<std::function<void()>*>(context);
+			const auto function = std::move(*function_ptr);
+			delete function_ptr;
+
+			try
+			{
+				function();
+			}
+			catch (...)
+			{
+			}
+		}
+	}
+
+	kernel_thread::kernel_thread(std::function<void()>&& callback)
+	{
+		auto* function_object = new std::function(std::move(callback));
+
+		auto destructor = utils::finally([&function_object]()
+		{
+			delete function_object;
+		});
+
+
+		HANDLE handle{};
+		const auto status = PsCreateSystemThread(&handle, 0, nullptr, nullptr, nullptr, thread_starter,
+		                                         function_object);
+
+		if (status != STATUS_SUCCESS)
+		{
+			throw std::runtime_error("Failed to create thread!");
+		}
+
+		ObReferenceObjectByHandle(handle, THREAD_ALL_ACCESS, nullptr, KernelMode,
+		                          reinterpret_cast<void**>(&this->handle_), nullptr);
+
+		ZwClose(handle);
+
+		destructor.cancel();
+	}
+
+	kernel_thread::~kernel_thread()
+	{
+		this->join();
+	}
+
+	kernel_thread::kernel_thread(kernel_thread&& obj) noexcept
+	{
+		this->operator=(std::move(obj));
+	}
+
+	kernel_thread& kernel_thread::operator=(kernel_thread&& obj) noexcept
+	{
+		if (this != &obj)
+		{
+			this->join();
+			this->handle_ = obj.handle_;
+			obj.handle_ = nullptr;
+		}
+
+		return *this;
+	}
+
+	bool kernel_thread::joinable() const
+	{
+		return this->handle_ != nullptr;
+	}
+
+	void kernel_thread::join()
+	{
+		if (this->joinable())
+		{
+			KeWaitForSingleObject(this->handle_, Executive, KernelMode, FALSE, nullptr);
+			this->detach();
+		}
+	}
+
+	void kernel_thread::detach()
+	{
+		if (this->joinable())
+		{
+			ObDereferenceObject(this->handle_);
+			this->handle_ = nullptr;
 		}
 	}
 

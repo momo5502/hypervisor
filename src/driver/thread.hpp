@@ -1,4 +1,5 @@
 #pragma once
+#include "functional.hpp"
 
 namespace thread
 {
@@ -26,4 +27,25 @@ namespace thread
 			(*static_cast<F*>(data))();
 		}, &callback, sequential);
 	}
+
+	class kernel_thread
+	{
+	public:
+		kernel_thread() = default;
+		kernel_thread(std::function<void()>&& callback);
+		~kernel_thread();
+
+		kernel_thread(kernel_thread&& obj) noexcept;
+		kernel_thread& operator=(kernel_thread&& obj) noexcept;
+
+		kernel_thread(const kernel_thread& obj) = delete;
+		kernel_thread& operator=(const kernel_thread& obj) = delete;
+
+		bool joinable() const;
+		void join();
+		void detach();
+
+	private:
+		PETHREAD handle_{nullptr};
+	};
 }

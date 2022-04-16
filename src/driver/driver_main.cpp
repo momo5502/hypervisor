@@ -168,14 +168,14 @@ public:
 		  , irp_(driver_object, DEV_NAME, DOS_DEV_NAME)
 	{
 		debug_log("Driver started\n");
-		this->trampoline = HookCreateFile(this->hypervisor_);
+		this->trampoline_ = HookCreateFile(this->hypervisor_);
 	}
 
 	~global_driver()
 	{
 		debug_log("Unloading driver\n");
 		this->hypervisor_.disable_all_ept_hooks();
-		memory::free_non_paged_memory(this->trampoline);
+		memory::free_non_paged_memory(this->trampoline_);
 	}
 
 	global_driver(global_driver&&) noexcept = delete;
@@ -193,7 +193,7 @@ private:
 	hypervisor hypervisor_{};
 	sleep_callback sleep_callback_{};
 	irp irp_{};
-	void* trampoline{nullptr};
+	void* trampoline_{nullptr};
 
 	void sleep_notification(const sleep_callback::type type)
 	{
