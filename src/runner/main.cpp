@@ -67,18 +67,23 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 
 	hook_request hook_request{};
 	hook_request.process_id = _pid; //GetCurrentProcessId();
-	hook_request.target_address = (void*)0x465FF7;//0x14007DCF7;
+	hook_request.target_address = (void*)0x41297A;//0x14007DCF7;
 
-	uint8_t buffer[1];
-	buffer[0] = 0xEB;
+	uint8_t buffer[] = {0x90, 0x90};
 
 	hook_request.source_data = buffer;
-	hook_request.source_data_size = 1;
+	hook_request.source_data_size = sizeof(buffer);
 
 	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
 	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
 
 	(void)driver_device.send(HOOK_DRV_IOCTL, input);
+
+	printf("Press any key to disable all hooks!\n");
+	_getch();
+
+	input.resize(0);
+	(void)driver_device.send(UNHOOK_DRV_IOCTL, input);
 
 	printf("Press any key to exit!\n");
 	_getch();

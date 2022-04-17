@@ -425,6 +425,9 @@ namespace vmx
 		{
 			if (hook->target_page->flags == hook->original_entry.flags)
 			{
+				const auto* data_source = translation_hint ? &translation_hint->page[0] : virtual_target;
+				memcpy(&hook->fake_page[0], data_source, PAGE_SIZE);
+
 				hook->target_page->flags = hook->readwrite_entry.flags;
 			}
 
@@ -441,7 +444,6 @@ namespace vmx
 		this->split_large_page(physical_address);
 
 		const auto* data_source = translation_hint ? &translation_hint->page[0] : virtual_target;
-
 		memcpy(&hook->fake_page[0], data_source, PAGE_SIZE);
 		hook->physical_base_address = physical_base_address;
 
@@ -516,7 +518,7 @@ namespace vmx
 		auto current_destination = reinterpret_cast<uint64_t>(destination);
 		auto current_length = length;
 
-		 ept_translation_hint* current_hints = nullptr;
+		ept_translation_hint* current_hints = nullptr;
 
 		auto destructor = utils::finally([&current_hints]()
 		{
@@ -531,7 +533,7 @@ namespace vmx
 			const auto data_to_write = min(page_remaining, current_length);
 
 			auto* new_hint = memory::allocate_non_paged_object<ept_translation_hint>();
-			if(!new_hint)
+			if (!new_hint)
 			{
 				throw std::runtime_error("Failed to allocate hint");
 			}
@@ -541,12 +543,12 @@ namespace vmx
 			current_hints->virtual_base_address = aligned_destination;
 			current_hints->physical_base_address = memory::get_physical_address(aligned_destination);
 
-			if(!current_hints->physical_base_address)
+			if (!current_hints->physical_base_address)
 			{
 				throw std::runtime_error("Failed to resolve physical address");
 			}
 
-			memcpy(&current_hints->page[0], aligned_destination, PAGE_SIZE);			
+			memcpy(&current_hints->page[0], aligned_destination, PAGE_SIZE);
 
 			current_length -= data_to_write;
 			current_destination += data_to_write;

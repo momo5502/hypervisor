@@ -41,7 +41,7 @@ namespace
 	void apply_hook(const hook_request* request)
 	{
 		auto* buffer = new uint8_t[request->source_data_size];
-		if(!buffer)
+		if (!buffer)
 		{
 			throw std::runtime_error("Failed to copy buffer");
 		}
@@ -80,15 +80,25 @@ namespace
 
 		t.join();
 
-		if(!translation_hints)
+		if (!translation_hints)
 		{
 			debug_log("Failed to generate tranlsation hints");
 			return;
 		}
 
-		hypervisor::get_instance()->install_ept_hook(request->target_address, buffer, request->source_data_size, translation_hints);
+		hypervisor::get_instance()->install_ept_hook(request->target_address, buffer, request->source_data_size,
+		                                             translation_hints);
 
 		debug_log("Done1\n");
+	}
+
+	void unhook()
+	{
+		const auto instance = hypervisor::get_instance();
+		if(instance)
+		{
+			instance->disable_all_ept_hooks();
+		}
 	}
 
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(
@@ -112,6 +122,9 @@ namespace
 				break;
 			case HOOK_DRV_IOCTL:
 				apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
+				break;
+			case UNHOOK_DRV_IOCTL:
+				unhook();
 				break;
 			default:
 				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
