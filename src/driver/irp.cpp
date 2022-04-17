@@ -74,7 +74,6 @@ namespace
 
 			debug_log("Level: %d\n", static_cast<int>(KeGetCurrentIrql()));
 
-
 			process::scoped_process_attacher attacher{process_handle};
 			translation_hints = vmx::ept::generate_translation_hints(r.target_address, r.source_data_size);
 		});
@@ -112,7 +111,6 @@ namespace
 				debug_log("Hello from the Driver!\n");
 				break;
 			case HOOK_DRV_IOCTL:
-
 				apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
 				break;
 			default:

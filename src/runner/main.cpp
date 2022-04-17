@@ -1,4 +1,5 @@
 #include <iostream>
+#include <conio.h>
 
 #include "std_include.hpp"
 #include "finally.hpp"
@@ -79,7 +80,9 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 
 	(void)driver_device.send(HOOK_DRV_IOCTL, input);
 
-	MessageBoxA(0, "Press ok to exit!", 0, 0);
+	//MessageBoxA(0, "Press ok to exit!", 0, 0);
+	printf("Press any key to exit!\n");
+	_getch();
 }
 
 int main(const int argc, char* argv[])
