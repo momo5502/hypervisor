@@ -67,7 +67,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 
 	hook_request hook_request{};
 	hook_request.process_id = _pid; //GetCurrentProcessId();
-	hook_request.target_address = (void*)0x14007DCF7; //"My Message!";
+	hook_request.target_address = (void*)0x465FF7;//0x14007DCF7;
 
 	uint8_t buffer[1];
 	buffer[0] = 0xEB;
@@ -80,7 +80,6 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 
 	(void)driver_device.send(HOOK_DRV_IOCTL, input);
 
-	//MessageBoxA(0, "Press ok to exit!", 0, 0);
 	printf("Press any key to exit!\n");
 	_getch();
 }
