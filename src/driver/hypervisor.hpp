@@ -19,7 +19,7 @@ public:
 
 	bool is_enabled() const;
 
-	bool install_ept_hook(const void* destination, const void* source, size_t length);
+	bool install_ept_hook(const void* destination, const void* source, size_t length, vmx::ept_translation_hint* translation_hint = nullptr);
 	void disable_all_ept_hooks() const;
 
 	static hypervisor* get_instance();
@@ -35,8 +35,8 @@ private:
 	void allocate_vm_states();
 	void free_vm_states();
 
-	bool try_install_ept_hook_on_core(const void* destination, const void* source, size_t length);
-	void install_ept_hook_on_core(const void* destination, const void* source, size_t length);
+	bool try_install_ept_hook_on_core(const void* destination, const void* source, size_t length, vmx::ept_translation_hint* translation_hint = nullptr);
+	void install_ept_hook_on_core(const void* destination, const void* source, size_t length, vmx::ept_translation_hint* translation_hint = nullptr);
 
 	vmx::state* get_current_vm_state() const;
 };

@@ -38,6 +38,16 @@ namespace vmx
 		ept_hook* next_hook{nullptr};
 	};
 
+	struct ept_translation_hint
+	{
+		DECLSPEC_PAGE_ALIGN uint8_t page[PAGE_SIZE]{};
+
+		uint64_t physical_base_address{};
+		const void* virtual_base_address{};
+
+		ept_translation_hint* next_hint{nullptr};
+	};
+
 	struct guest_context;
 
 	class ept
@@ -53,7 +63,7 @@ namespace vmx
 
 		void initialize();
 
-		void install_hook(const void* destination, const void* source, size_t length);
+		void install_hook(const void* destination, const void* source, size_t length, ept_translation_hint* translation_hint = nullptr);
 		void disable_all_hooks() const;
 
 		void handle_violation(guest_context& guest_context) const;
@@ -61,6 +71,9 @@ namespace vmx
 
 		ept_pointer get_ept_pointer() const;
 		void invalidate() const;
+
+		static ept_translation_hint* generate_translation_hints(const void* destination, size_t length);
+		static void free_translation_hints(ept_translation_hint* hints);
 
 	private:
 		DECLSPEC_PAGE_ALIGN pml4 epml4[EPT_PML4E_ENTRY_COUNT]{};
@@ -78,10 +91,10 @@ namespace vmx
 		ept_hook* allocate_ept_hook();
 		ept_hook* find_ept_hook(uint64_t physical_address) const;
 
-		ept_hook* get_or_create_ept_hook(void* destination);
+		ept_hook* get_or_create_ept_hook(void* destination, ept_translation_hint* translation_hint = nullptr);
 
 		void split_large_page(uint64_t physical_address);
 
-		void install_page_hook(void* destination, const void* source, size_t length);
+		void install_page_hook(void* destination, const void* source, size_t length, ept_translation_hint* translation_hint = nullptr);
 	};
 }

@@ -38,9 +38,24 @@ namespace
 	}
 
 	// TODO: This is vulnerable as fuck. Optimize!
-	void apply_hook(hook_request* request)
+	void apply_hook(const hook_request* request)
 	{
-		thread::kernel_thread t([r = *request]()
+		auto* buffer = new uint8_t[request->source_data_size];
+		if(!buffer)
+		{
+			throw std::runtime_error("Failed to copy buffer");
+		}
+
+		vmx::ept_translation_hint* translation_hints = nullptr;
+		auto destructor = utils::finally([&translation_hints, &buffer]()
+		{
+			delete[] buffer;
+			vmx::ept::free_translation_hints(translation_hints);
+		});
+
+		memcpy(buffer, request->source_data, request->source_data_size);
+
+		thread::kernel_thread t([&translation_hints, r = *request]()
 		{
 			debug_log("Pid: %d | Address: %p\n", r.process_id, r.target_address);
 
@@ -59,36 +74,22 @@ namespace
 
 			debug_log("Level: %d\n", static_cast<int>(KeGetCurrentIrql()));
 
-			/*
-			auto buffer = new uint8_t[r.source_data_size];
-			if (!buffer)
-			{
-				debug_log("Failed to allocate buffer\n");
-				return;
-			}
-
-			auto destructor = utils::finally([buffer]()
-			{
-				delete[] buffer;
-			});
-
-			memcpy(buffer, r.source_data, r.source_data_size);
-			*/
 
 			process::scoped_process_attacher attacher{process_handle};
-
-			debug_log("Original: %p\n", r.target_address);
-
-			uint8_t buffer = 0xEB;
-
-			//hypervisor::get_instance()->install_ept_hook(r.target_address, buffer, r.source_data_size);
-			hypervisor::get_instance()->install_ept_hook(r.target_address, &buffer, 1);
-
-			debug_log("Done1\n");
+			translation_hints = vmx::ept::generate_translation_hints(r.target_address, r.source_data_size);
 		});
 
 		t.join();
-		debug_log("Done\n");
+
+		if(!translation_hints)
+		{
+			debug_log("Failed to generate tranlsation hints");
+			return;
+		}
+
+		hypervisor::get_instance()->install_ept_hook(request->target_address, buffer, request->source_data_size, translation_hints);
+
+		debug_log("Done1\n");
 	}
 
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(

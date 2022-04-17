@@ -2,6 +2,8 @@
 #include "ept.hpp"
 
 #include "assembly.hpp"
+#include "finally.hpp"
+#include "logging.hpp"
 #include "memory.hpp"
 #include "vmx.hpp"
 
@@ -127,15 +129,17 @@ namespace vmx
 		}
 	}
 
-	void ept::install_page_hook(void* destination, const void* source, const size_t length)
+	void ept::install_page_hook(void* destination, const void* source, const size_t length,
+	                            ept_translation_hint* translation_hint)
 	{
-		auto* hook = this->get_or_create_ept_hook(destination);
+		auto* hook = this->get_or_create_ept_hook(destination, translation_hint);
 
 		const auto page_offset = ADDRMASK_EPT_PML1_OFFSET(reinterpret_cast<uint64_t>(destination));
 		memcpy(hook->fake_page + page_offset, source, length);
 	}
 
-	void ept::install_hook(const void* destination, const void* source, const size_t length)
+	void ept::install_hook(const void* destination, const void* source, const size_t length,
+	                       ept_translation_hint* translation_hint)
 	{
 		auto current_destination = reinterpret_cast<uint64_t>(destination);
 		auto current_source = reinterpret_cast<uint64_t>(source);
@@ -143,12 +147,26 @@ namespace vmx
 
 		while (current_length != 0)
 		{
+			const auto aligned_destination = PAGE_ALIGN(current_destination);
 			const auto page_offset = ADDRMASK_EPT_PML1_OFFSET(current_destination);
 			const auto page_remaining = PAGE_SIZE - page_offset;
 			const auto data_to_write = min(page_remaining, current_length);
 
+			ept_translation_hint* relevant_hint = nullptr;
+			ept_translation_hint* current_hint = translation_hint;
+			while (current_hint)
+			{
+				if (current_hint->virtual_base_address == aligned_destination)
+				{
+					relevant_hint = current_hint;
+					break;
+				}
+
+				current_hint = current_hint->next_hint;
+			}
+
 			this->install_page_hook(reinterpret_cast<void*>(current_destination),
-			                        reinterpret_cast<const void*>(current_source), data_to_write);
+			                        reinterpret_cast<const void*>(current_source), data_to_write, relevant_hint);
 
 			current_length -= data_to_write;
 			current_destination += data_to_write;
@@ -381,10 +399,20 @@ namespace vmx
 		return nullptr;
 	}
 
-	ept_hook* ept::get_or_create_ept_hook(void* destination)
+	ept_hook* ept::get_or_create_ept_hook(void* destination, ept_translation_hint* translation_hint)
 	{
 		const auto virtual_target = PAGE_ALIGN(destination);
-		const auto physical_address = memory::get_physical_address(virtual_target);
+
+		uint64_t physical_address = 0;
+		if (translation_hint)
+		{
+			physical_address = translation_hint->physical_base_address + ADDRMASK_EPT_PML1_OFFSET(
+				reinterpret_cast<uint64_t>(destination));
+		}
+		else
+		{
+			physical_address = memory::get_physical_address(virtual_target);
+		}
 
 		if (!physical_address)
 		{
@@ -412,7 +440,9 @@ namespace vmx
 
 		this->split_large_page(physical_address);
 
-		memcpy(&hook->fake_page[0], virtual_target, PAGE_SIZE);
+		const auto* data_source = translation_hint ? &translation_hint->page[0] : virtual_target;
+
+		memcpy(&hook->fake_page[0], data_source, PAGE_SIZE);
 		hook->physical_base_address = physical_base_address;
 
 		hook->target_page = this->get_pml1_entry(physical_address);
@@ -479,5 +509,62 @@ namespace vmx
 		new_pointer.page_frame_number = memory::get_physical_address(&split->pml1[0]) / PAGE_SIZE;
 
 		target_entry->flags = new_pointer.flags;
+	}
+
+	ept_translation_hint* ept::generate_translation_hints(const void* destination, const size_t length)
+	{
+		auto current_destination = reinterpret_cast<uint64_t>(destination);
+		auto current_length = length;
+
+		 ept_translation_hint* current_hints = nullptr;
+
+		auto destructor = utils::finally([&current_hints]()
+		{
+			ept::free_translation_hints(current_hints);
+		});
+
+		while (current_length != 0)
+		{
+			const auto aligned_destination = PAGE_ALIGN(current_destination);
+			const auto page_offset = ADDRMASK_EPT_PML1_OFFSET(current_destination);
+			const auto page_remaining = PAGE_SIZE - page_offset;
+			const auto data_to_write = min(page_remaining, current_length);
+
+			auto* new_hint = memory::allocate_non_paged_object<ept_translation_hint>();
+			if(!new_hint)
+			{
+				throw std::runtime_error("Failed to allocate hint");
+			}
+
+			new_hint->next_hint = current_hints;
+			current_hints = new_hint;
+			current_hints->virtual_base_address = aligned_destination;
+			current_hints->physical_base_address = memory::get_physical_address(aligned_destination);
+
+			if(!current_hints->physical_base_address)
+			{
+				throw std::runtime_error("Failed to resolve physical address");
+			}
+
+			memcpy(&current_hints->page[0], aligned_destination, PAGE_SIZE);			
+
+			current_length -= data_to_write;
+			current_destination += data_to_write;
+		}
+
+		destructor.cancel();
+
+		return current_hints;
+	}
+
+	void ept::free_translation_hints(ept_translation_hint* hints)
+	{
+		auto* hint = hints;
+		while (hint)
+		{
+			auto* current_hint = hint;
+			hint = hint->next_hint;
+			memory::free_non_paged_object(current_hint);
+		}
 	}
 }

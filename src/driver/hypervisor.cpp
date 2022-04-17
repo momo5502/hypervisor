@@ -159,12 +159,12 @@ bool hypervisor::is_enabled() const
 	return is_hypervisor_present();
 }
 
-bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length)
+bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length, vmx::ept_translation_hint* translation_hint)
 {
 	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]()
 	{
-		if (!this->try_install_ept_hook_on_core(destination, source, length))
+		if (!this->try_install_ept_hook_on_core(destination, source, length, translation_hint))
 		{
 			InterlockedIncrement(&failures);
 		}
@@ -1005,11 +1005,11 @@ void hypervisor::free_vm_states()
 	this->vm_state_count_ = 0;
 }
 
-bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length)
+bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length, vmx::ept_translation_hint* translation_hint)
 {
 	try
 	{
-		this->install_ept_hook_on_core(destination, source, length);
+		this->install_ept_hook_on_core(destination, source, length, translation_hint);
 		return true;
 	}
 	catch (std::exception& e)
@@ -1024,7 +1024,7 @@ bool hypervisor::try_install_ept_hook_on_core(const void* destination, const voi
 	}
 }
 
-void hypervisor::install_ept_hook_on_core(const void* destination, const void* source, const size_t length)
+void hypervisor::install_ept_hook_on_core(const void* destination, const void* source, const size_t length, vmx::ept_translation_hint* translation_hint)
 {
 	auto* vm_state = this->get_current_vm_state();
 	if (!vm_state)
@@ -1032,7 +1032,7 @@ void hypervisor::install_ept_hook_on_core(const void* destination, const void* s
 		throw std::runtime_error("No vm state available");
 	}
 
-	vm_state->ept.install_hook(destination, source, length);
+	vm_state->ept.install_hook(destination, source, length, translation_hint);
 
 	if (this->is_enabled())
 	{

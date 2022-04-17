@@ -78,8 +78,13 @@ namespace thread
 			{
 				function();
 			}
+			catch (std::exception& e)
+			{
+				debug_log("Kernel thread threw an exception: %s\n", e.what());
+			}
 			catch (...)
 			{
+				debug_log("Kernel thread threw an unknown exception\n");
 			}
 		}
 	}

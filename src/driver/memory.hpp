@@ -26,6 +26,28 @@ namespace memory
 	void copy_physical_data(uint64_t address, void* destination, size_t length);
 
 	template <typename T, typename... Args>
+	T* allocate_non_paged_object(Args ... args)
+	{
+		auto* object = static_cast<T*>(allocate_non_paged_memory(sizeof(T)));
+		if (object)
+		{
+			new(object) T(std::forward<Args>(args)...);
+		}
+
+		return object;
+	}
+
+	template <typename T>
+	void free_non_paged_object(T* object)
+	{
+		if (object)
+		{
+			object->~T();
+			free_non_paged_memory(object);
+		}
+	}
+
+	template <typename T, typename... Args>
 	T* allocate_aligned_object(Args ... args)
 	{
 		auto* object = static_cast<T*>(allocate_aligned_memory(sizeof(T)));
