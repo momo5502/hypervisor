@@ -194,17 +194,8 @@ namespace vmx
 			guest_context.exit_vm = true;
 		}
 
-		auto* hook = this->ept_hooks;
-		while (hook)
-		{
-			if (hook->physical_base_address == reinterpret_cast<uint64_t>(PAGE_ALIGN(
-				guest_context.guest_physical_address)))
-			{
-				break;
-			}
-			hook = hook->next_hook;
-		}
-
+		const auto physical_base_address = reinterpret_cast<uint64_t>(PAGE_ALIGN(guest_context.guest_physical_address));
+		auto* hook = this->find_ept_hook(physical_base_address);
 		if (!hook)
 		{
 			return;
