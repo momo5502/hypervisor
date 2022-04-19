@@ -45,6 +45,32 @@ std::filesystem::path get_current_path()
 	return selfdir;
 }
 
+void patch_data(const driver_device& driver_device, const uint32_t pid, const uint64_t addr, const uint8_t* buffer,
+                const size_t length)
+{
+	hook_request hook_request{};
+	hook_request.process_id = pid;
+	hook_request.target_address = reinterpret_cast<void*>(addr);
+
+	hook_request.source_data = buffer;
+	hook_request.source_data_size = length;
+
+	driver_device::data input{};
+	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
+	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
+
+	(void)driver_device.send(HOOK_DRV_IOCTL, input);
+}
+
+void insert_nop(const driver_device& driver_device, const uint32_t pid, const uint64_t addr, const size_t length)
+{
+	std::vector<uint8_t> buffer{};
+	buffer.resize(length);
+	memset(buffer.data(), 0x90, buffer.size());
+
+	patch_data(driver_device, pid, addr, buffer.data(), buffer.size());
+}
+
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
 	printf("Pid: %lu\n", GetCurrentProcessId());
@@ -58,36 +84,27 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	(void)driver_device.send(HELLO_DRV_IOCTL, input);
 
 	std::string pid;
-
 	std::cout << "Please, enter the pid: ";
 	std::getline(std::cin, pid);
 
 	int _pid = atoi(pid.data());
 	printf("Pid was : %d\n", _pid);
 
-	hook_request hook_request{};
-	hook_request.process_id = _pid; //GetCurrentProcessId();
-	hook_request.target_address = (void*)0x4488A8;//0x41297A;
+	// IW5
+	insert_nop(driver_device, _pid, 0x4488A8, 2); // Force calling CG_DrawFriendOrFoeTargetBoxes
+	insert_nop(driver_device, _pid, 0x47F6C7, 2); // Ignore blind-eye perks
+	insert_nop(driver_device, _pid, 0x44894C, 2); // Miniconsole
 
-	uint8_t buffer[] = {0x90, 0x90};
-	//uint8_t buffer[] = { 0x48, 0x89, 0xD9, 0x90 };
+	// T6
+	//insert_nop(driver_device, _pid, 0x7B53AE, 6); // Enable chopper boxes
+	//insert_nop(driver_device, _pid, 0x7B5461, 6); // Ignore player not visible
+	//insert_nop(driver_device, _pid, 0x7B5471, 6); // Ignore blind-eye perks
 
-	hook_request.source_data = buffer;
-	hook_request.source_data_size = sizeof(buffer);
+	//const uint8_t data[] = {0x31, 0xC0, 0xC3};
+	//patch_data(driver_device, _pid, 0x4EEFD0, data, sizeof(data));
 
-	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
-	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
-
-	(void)driver_device.send(HOOK_DRV_IOCTL, input);
-
-		hook_request.target_address = (void*)0x47F6C7;
-	hook_request.source_data = buffer;
-	hook_request.source_data_size = sizeof(buffer);
-
-	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
-	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
-
-	(void)driver_device.send(HOOK_DRV_IOCTL, input);
+	//const uint8_t data[] = {0xEB};
+	//patch_data(driver_device, _pid, 0x43AE44, data, sizeof(data));
 
 	printf("Press any key to disable all hooks!\n");
 	_getch();
