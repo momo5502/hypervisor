@@ -159,7 +159,8 @@ bool hypervisor::is_enabled() const
 	return is_hypervisor_present();
 }
 
-bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length, vmx::ept_translation_hint* translation_hint)
+bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length,
+                                  vmx::ept_translation_hint* translation_hint)
 {
 	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]()
@@ -573,6 +574,8 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, const vmx::state& v
 	case VMX_EXIT_REASON_EPT_MISCONFIGURATION:
 		vm_state.ept.handle_misconfiguration(guest_context);
 		break;
+	//case VMX_EXIT_REASON_EXECUTE_RDTSC:
+	//	break;
 	default:
 		break;
 	}
@@ -1005,7 +1008,8 @@ void hypervisor::free_vm_states()
 	this->vm_state_count_ = 0;
 }
 
-bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length, vmx::ept_translation_hint* translation_hint)
+bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length,
+                                              vmx::ept_translation_hint* translation_hint)
 {
 	try
 	{
@@ -1024,7 +1028,8 @@ bool hypervisor::try_install_ept_hook_on_core(const void* destination, const voi
 	}
 }
 
-void hypervisor::install_ept_hook_on_core(const void* destination, const void* source, const size_t length, vmx::ept_translation_hint* translation_hint)
+void hypervisor::install_ept_hook_on_core(const void* destination, const void* source, const size_t length,
+                                          vmx::ept_translation_hint* translation_hint)
 {
 	auto* vm_state = this->get_current_vm_state();
 	if (!vm_state)

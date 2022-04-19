@@ -80,6 +80,15 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 
 	(void)driver_device.send(HOOK_DRV_IOCTL, input);
 
+		hook_request.target_address = (void*)0x47F6C7;
+	hook_request.source_data = buffer;
+	hook_request.source_data_size = sizeof(buffer);
+
+	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
+	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
+
+	(void)driver_device.send(HOOK_DRV_IOCTL, input);
+
 	printf("Press any key to disable all hooks!\n");
 	_getch();
 

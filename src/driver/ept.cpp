@@ -10,12 +10,12 @@
 #define MTRR_PAGE_SIZE 4096
 #define MTRR_PAGE_MASK (~(MTRR_PAGE_SIZE-1))
 
-#define ADDRMASK_EPT_PML1_OFFSET(_VAR_) (_VAR_ & 0xFFFULL)
+#define ADDRMASK_EPT_PML1_OFFSET(_VAR_) ((_VAR_) & 0xFFFULL)
 
-#define ADDRMASK_EPT_PML1_INDEX(_VAR_) ((_VAR_ & 0x1FF000ULL) >> 12)
-#define ADDRMASK_EPT_PML2_INDEX(_VAR_) ((_VAR_ & 0x3FE00000ULL) >> 21)
-#define ADDRMASK_EPT_PML3_INDEX(_VAR_) ((_VAR_ & 0x7FC0000000ULL) >> 30)
-#define ADDRMASK_EPT_PML4_INDEX(_VAR_) ((_VAR_ & 0xFF8000000000ULL) >> 39)
+#define ADDRMASK_EPT_PML1_INDEX(_VAR_) (((_VAR_) & 0x1FF000ULL) >> 12)
+#define ADDRMASK_EPT_PML2_INDEX(_VAR_) (((_VAR_) & 0x3FE00000ULL) >> 21)
+#define ADDRMASK_EPT_PML3_INDEX(_VAR_) (((_VAR_) & 0x7FC0000000ULL) >> 30)
+#define ADDRMASK_EPT_PML4_INDEX(_VAR_) (((_VAR_) & 0xFF8000000000ULL) >> 39)
 
 namespace vmx
 {
@@ -316,10 +316,10 @@ namespace vmx
 		}
 
 		const auto* pml2 = reinterpret_cast<pml2_ptr*>(pml2_entry);
-		auto* pml1 = static_cast<epte*>(memory::get_virtual_address(pml2->page_frame_number * PAGE_SIZE));
+		auto* pml1 = this->find_pml1_table(pml2->page_frame_number * PAGE_SIZE);
 		if (!pml1)
 		{
-			pml1 = this->find_pml1_table(pml2->page_frame_number * PAGE_SIZE);
+			pml1 = static_cast<epte*>(memory::get_virtual_address(pml2->page_frame_number * PAGE_SIZE));
 		}
 
 		if (!pml1)
