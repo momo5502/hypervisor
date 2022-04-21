@@ -23,8 +23,6 @@ namespace memory
 	_IRQL_requires_max_(DISPATCH_LEVEL)
 	void free_non_paged_memory(void* memory);
 
-	void copy_physical_data(uint64_t address, void* destination, size_t length);
-
 	template <typename T, typename... Args>
 	T* allocate_non_paged_object(Args ... args)
 	{

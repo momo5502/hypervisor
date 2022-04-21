@@ -104,12 +104,4 @@ namespace memory
 			ExFreePool(memory);
 		}
 	}
-
-	void copy_physical_data(const uint64_t address, void* destination, const size_t length)
-	{
-		size_t result{};
-		MM_COPY_ADDRESS copy_address{};
-		copy_address.PhysicalAddress.QuadPart = static_cast<int64_t>(address);
-		MmCopyMemory(destination, copy_address, length,  MM_COPY_MEMORY_PHYSICAL, &result);
-	}
 }
