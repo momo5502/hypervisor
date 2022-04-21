@@ -81,24 +81,10 @@ namespace vmx
 		uint32_t mtrr_adjust_effective_memory_type(const mtrr_list& mtrr_data, const uint64_t large_page_address,
 		                                           uint32_t candidate_memory_type)
 		{
-			//
-			// Loop each MTRR range
-			//
 			for (const auto& mtrr_entry : mtrr_data)
 			{
-				//
-				// Check if it's active
-				//
-				if (!mtrr_entry.enabled)
-				{
-					continue;
-				}
-				//
-				// Check if this large page falls within the boundary. If a single
-				// physical page (4KB) touches it, we need to override the entire 2MB.
-				//
-				if (((large_page_address + (2_mb - 1)) >= mtrr_entry.physical_address_min) &&
-					(large_page_address <= mtrr_entry.physical_address_max))
+				if (mtrr_entry.enabled && large_page_address + (2_mb - 1) >= mtrr_entry.physical_address_min &&
+					large_page_address <= mtrr_entry.physical_address_max)
 				{
 					candidate_memory_type = mtrr_entry.type;
 				}
