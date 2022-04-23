@@ -37,6 +37,7 @@ namespace vmx
 		uint64_t vmcs_physical_address;
 		uint64_t msr_bitmap_physical_address;
 		ia32_vmx_procbased_ctls2_register ept_controls;
+		bool launched;
 	};
 
 	struct state

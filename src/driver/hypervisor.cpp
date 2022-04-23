@@ -60,12 +60,10 @@ namespace
 		_sldt(&special_registers.ldtr);
 	}
 
-	void capture_cpu_context(vmx::launch_context& launch_context)
-	{
-		cpature_special_registers(launch_context.special_registers);
-		RtlCaptureContext(&launch_context.context_frame);
-	}
-
+        // This absolutely needs to be inlined. Otherwise the stack might be broken upon restoration
+        #define capture_cpu_context(launch_context) \
+	      cpature_special_registers((launch_context).special_registers);\
+	      RtlCaptureContext(&(launch_context).context_frame);
 
 	void restore_descriptor_tables(vmx::launch_context& launch_context)
 	{
@@ -107,6 +105,7 @@ namespace
 		auto* vm_state = resolve_vm_state_from_context(*context);
 
 		vm_state->launch_context.context_frame.EFlags |= EFLAGS_ALIGNMENT_CHECK_FLAG_FLAG;
+		vm_state->launch_context.launched = true;
 		restore_context(&vm_state->launch_context.context_frame);
 	}
 }
@@ -670,12 +669,18 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	debug_log("Enabling hypervisor on core %d\n", thread::get_processor_index());
 	auto* vm_state = this->get_current_vm_state();
 
+	if (!is_virtualization_supported())
+	{
+	  throw std::runtime_error("VMX not supported on this core");
+	}
+
+	vm_state->launch_context.launched = false;
 	vm_state->launch_context.system_directory_table_base = system_directory_table_base;
 
+        // Must be inlined here, otherwise the stack is broken
 	capture_cpu_context(vm_state->launch_context);
 
-	const rflags rflags{.flags = __readeflags()};
-	if (!rflags.alignment_check_flag)
+	if (!vm_state->launch_context.launched)
 	{
 		launch_hypervisor(*vm_state);
 	}
