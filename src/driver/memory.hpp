@@ -78,10 +78,10 @@ inline uint64_t operator"" _kb(const uint64_t size)
 
 inline uint64_t operator"" _mb(const uint64_t size)
 {
-	return operator"" _kb(size * 1024);
+	return size * 1024_kb;
 }
 
 inline uint64_t operator"" _gb(const uint64_t size)
 {
-	return operator"" _mb(size * 1024);
+	return size * 1024_mb;
 }
