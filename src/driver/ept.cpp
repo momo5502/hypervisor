@@ -33,43 +33,25 @@ namespace vmx
 
 		void initialize_mtrr(mtrr_list& mtrr_data)
 		{
-			//
-			// Read the capabilities mask
-			//
 			ia32_mtrr_capabilities_register mtrr_capabilities{};
 			mtrr_capabilities.flags = __readmsr(IA32_MTRR_CAPABILITIES);
 
-			//
-			// Iterate over each variable MTRR
-			//
 			for (auto i = 0u; i < mtrr_capabilities.variable_range_count; i++)
 			{
-				//
-				// Capture the value
-				//
 				ia32_mtrr_physbase_register mtrr_base{};
 				ia32_mtrr_physmask_register mtrr_mask{};
 
 				mtrr_base.flags = __readmsr(IA32_MTRR_PHYSBASE0 + i * 2);
 				mtrr_mask.flags = __readmsr(IA32_MTRR_PHYSMASK0 + i * 2);
 
-				//
-				// Check if the MTRR is enabled
-				//
 				mtrr_data[i].type = static_cast<uint32_t>(mtrr_base.type);
 				mtrr_data[i].enabled = static_cast<uint32_t>(mtrr_mask.valid);
 				if (mtrr_data[i].enabled != FALSE)
 				{
-					//
-					// Set the base
-					//
 					mtrr_data[i].physical_address_min = mtrr_base.page_frame_number *
 						MTRR_PAGE_SIZE;
 
-					//
-					// Compute the length
-					//
-					unsigned long bit;
+					unsigned long bit{};
 					_BitScanForward64(&bit, mtrr_mask.page_frame_number * MTRR_PAGE_SIZE);
 					mtrr_data[i].physical_address_max = mtrr_data[i].
 						physical_address_min +
