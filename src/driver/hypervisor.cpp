@@ -296,7 +296,10 @@ void enter_root_mode_on_cpu(vmx::state& vm_state)
 	  throw std::runtime_error("Failed to execute vmx_on");
 	}
 
-	auto destructor = utils::finally(__vmx_off);
+	auto destructor = utils::finally([]
+	{
+	  __vmx_off();
+	});
 
 	if (__vmx_vmclear(&launch_context->vmcs_physical_address))
 	{
