@@ -47,7 +47,7 @@ namespace process
 
 	bool process_handle::is_alive() const
 	{
-		if(!this->handle_)
+		if (!this->handle_)
 		{
 			return false;
 		}
@@ -60,7 +60,7 @@ namespace process
 
 	uint32_t process_handle::get_id() const
 	{
-		if(!this->handle_)
+		if (!this->handle_)
 		{
 			return 0;
 		}

@@ -37,18 +37,16 @@ namespace std
 
 	// TEMPLATE FUNCTION forward
 	template <class _Ty>
-	inline
 	constexpr _Ty&& forward(
-		typename remove_reference<_Ty>::type& _Arg)
+			typename remove_reference<_Ty>::type& _Arg)
 	{
 		// forward an lvalue as either an lvalue or an rvalue
 		return (static_cast<_Ty&&>(_Arg));
 	}
 
 	template <class _Ty>
-	inline
 	constexpr _Ty&& forward(
-		typename remove_reference<_Ty>::type&& _Arg)
+			typename remove_reference<_Ty>::type&& _Arg)
 	{
 		// forward an rvalue as an rvalue
 		return (static_cast<_Ty&&>(_Arg));

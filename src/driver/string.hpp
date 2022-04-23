@@ -10,7 +10,7 @@ namespace string
 
 	char* get_va_buffer();
 
-	template<typename ...Args>
+	template <typename ...Args>
 	const char* va(const char* message, Args&&... args)
 	{
 		auto* buffer = get_va_buffer();

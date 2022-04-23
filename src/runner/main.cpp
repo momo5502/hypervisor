@@ -2,7 +2,6 @@
 #include <conio.h>
 
 #include "std_include.hpp"
-#include "finally.hpp"
 #include "driver.hpp"
 #include "driver_device.hpp"
 

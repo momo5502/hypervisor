@@ -16,7 +16,7 @@ public:
 		  {
 			  this->sleep_notification(type);
 		  })
-		  , irp_(driver_object, DEV_NAME, DOS_DEV_NAME)
+		, irp_(driver_object, DEV_NAME, DOS_DEV_NAME)
 	{
 		debug_log("Driver started\n");
 	}

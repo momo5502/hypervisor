@@ -63,7 +63,8 @@ namespace vmx
 
 		void initialize();
 
-		void install_hook(const void* destination, const void* source, size_t length, ept_translation_hint* translation_hint = nullptr);
+		void install_hook(const void* destination, const void* source, size_t length,
+		                  ept_translation_hint* translation_hint = nullptr);
 		void disable_all_hooks() const;
 
 		void handle_violation(guest_context& guest_context) const;
@@ -95,6 +96,7 @@ namespace vmx
 
 		void split_large_page(uint64_t physical_address);
 
-		void install_page_hook(void* destination, const void* source, size_t length, ept_translation_hint* translation_hint = nullptr);
+		void install_page_hook(void* destination, const void* source, size_t length,
+		                       ept_translation_hint* translation_hint = nullptr);
 	};
 }

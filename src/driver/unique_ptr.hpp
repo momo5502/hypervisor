@@ -73,9 +73,9 @@ namespace std
 		static constexpr auto is_array_type = is_array<T>::value;
 		T* pointer_{nullptr};
 
-		void delete_pointer()
+		void delete_pointer() const
 		{
-			if(is_array_type)
+			if (is_array_type)
 			{
 				delete[] this->pointer_;
 			}

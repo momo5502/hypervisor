@@ -9,7 +9,7 @@ sleep_callback::sleep_callback(callback_function&& callback)
 	PCALLBACK_OBJECT callback_object{};
 	UNICODE_STRING callback_name = RTL_CONSTANT_STRING(L"\\Callback\\PowerState");
 	OBJECT_ATTRIBUTES object_attributes = RTL_CONSTANT_OBJECT_ATTRIBUTES(
-		&callback_name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE);
+			&callback_name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE);
 
 	const auto _ = utils::finally([&callback_object]()
 	{
@@ -52,6 +52,7 @@ void sleep_callback::dispatcher(const type type) const
 }
 
 _Function_class_(CALLBACK_FUNCTION)
+
 void sleep_callback::static_callback(void* context, void* argument1, void* argument2)
 {
 	if (!context || argument1 != reinterpret_cast<PVOID>(PO_CB_SYSTEM_STATE_LOCK))

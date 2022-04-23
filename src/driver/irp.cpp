@@ -36,7 +36,7 @@ namespace
 
 		return STATUS_SUCCESS;
 	}
-	
+
 	void apply_hook(const hook_request& request)
 	{
 		auto* buffer = new uint8_t[request.source_data_size];
@@ -55,10 +55,10 @@ namespace
 		memcpy(buffer, request.source_data, request.source_data_size);
 
 		auto* hypervisor = hypervisor::get_instance();
-	        if(!hypervisor)
+		if (!hypervisor)
 		{
-		  throw std::runtime_error("Hypervisor not installed");
-	        }
+			throw std::runtime_error("Hypervisor not installed");
+		}
 
 		thread::kernel_thread t([&translation_hints, r = request]
 		{
@@ -74,7 +74,7 @@ namespace
 			const auto name = process_handle.get_image_filename();
 			if (name)
 			{
-			  debug_log("Attaching to %s\n", name);
+				debug_log("Attaching to %s\n", name);
 			}
 
 			process::scoped_process_attacher attacher{process_handle};
@@ -90,81 +90,81 @@ namespace
 		}
 
 		hypervisor->install_ept_hook(request.target_address, buffer, request.source_data_size,
-		                                             translation_hints);
+		                             translation_hints);
 	}
 
 	void unhook()
 	{
 		const auto instance = hypervisor::get_instance();
-		if(instance)
+		if (instance)
 		{
 			instance->disable_all_ept_hooks();
 		}
 	}
 
-        void try_apply_hook(const PIO_STACK_LOCATION irp_sp)
+	void try_apply_hook(const PIO_STACK_LOCATION irp_sp)
 	{
-	  if(irp_sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(hook_request))
-	  {
-	    throw std::runtime_error("Invalid hook request");
-	  }
+		if (irp_sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(hook_request))
+		{
+			throw std::runtime_error("Invalid hook request");
+		}
 
-          const auto& request = *static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer);
-	  memory::assert_readability(request.source_data, request.source_data_size);
-	  memory::assert_readability(request.target_address, request.source_data_size);
+		const auto& request = *static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer);
+		memory::assert_readability(request.source_data, request.source_data_size);
+		memory::assert_readability(request.target_address, request.source_data_size);
 
-	  apply_hook(request);
+		apply_hook(request);
 	}
 
-        void handle_irp(const PIRP irp)
+	void handle_irp(const PIRP irp)
 	{
-	  irp->IoStatus.Information = 0;
-	  irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+		irp->IoStatus.Information = 0;
+		irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
 
-	  const auto irp_sp = IoGetCurrentIrpStackLocation(irp);
+		const auto irp_sp = IoGetCurrentIrpStackLocation(irp);
 
-	  if (irp_sp)
-	  {
-	    const auto ioctr_code = irp_sp->Parameters.DeviceIoControl.IoControlCode;
+		if (irp_sp)
+		{
+			const auto ioctr_code = irp_sp->Parameters.DeviceIoControl.IoControlCode;
 
-	    switch (ioctr_code)
-	    {
-	    case HELLO_DRV_IOCTL:
-	      debug_log("Hello from the Driver!\n");
-	      break;
-	    case HOOK_DRV_IOCTL:
-	      try_apply_hook(irp_sp);
-	      break;
-	    case UNHOOK_DRV_IOCTL:
-	      unhook();
-	      break;
-	    default:
-	      debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
-	      irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
-	      break;
-	    }
-	  }
+			switch (ioctr_code)
+			{
+			case HELLO_DRV_IOCTL:
+				debug_log("Hello from the Driver!\n");
+				break;
+			case HOOK_DRV_IOCTL:
+				try_apply_hook(irp_sp);
+				break;
+			case UNHOOK_DRV_IOCTL:
+				unhook();
+				break;
+			default:
+				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
+				irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+				break;
+			}
+		}
 	}
 
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(
-		PDEVICE_OBJECT /*device_object*/, const PIRP irp)
+			PDEVICE_OBJECT /*device_object*/, const PIRP irp)
 	{
 		PAGED_CODE()
 
-	        try
+		try
 		{
-		  handle_irp(irp);
-	        }
-	        catch(std::exception& e)
+			handle_irp(irp);
+		}
+		catch (std::exception& e)
 		{
-		  debug_log("Handling IRP failed: %s\n", e.what());
-		  irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
-	        }
-	        catch(...)
+			debug_log("Handling IRP failed: %s\n", e.what());
+			irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+		}
+		catch (...)
 		{
-		  debug_log("Handling IRP failed\n");
-		  irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
-	        }
+			debug_log("Handling IRP failed\n");
+			irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+		}
 
 		IoCompleteRequest(irp, IO_NO_INCREMENT);
 

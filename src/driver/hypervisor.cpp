@@ -60,9 +60,9 @@ namespace
 		_sldt(&special_registers.ldtr);
 	}
 
-        // This absolutely needs to be inlined. Otherwise the stack might be broken upon restoration
-        // See: https://github.com/ionescu007/SimpleVisor/issues/48
-        #define capture_cpu_context(launch_context) \
+	// This absolutely needs to be inlined. Otherwise the stack might be broken upon restoration
+	// See: https://github.com/ionescu007/SimpleVisor/issues/48
+#define capture_cpu_context(launch_context) \
 	      cpature_special_registers((launch_context).special_registers);\
 	      RtlCaptureContext(&(launch_context).context_frame);
 
@@ -250,17 +250,17 @@ void enter_root_mode_on_cpu(vmx::state& vm_state)
 	basic_register.flags = launch_context->msr_data[0].QuadPart;
 	if (basic_register.vmcs_size_in_bytes > static_cast<uint64_t>(PAGE_SIZE))
 	{
-	  throw std::runtime_error("VMCS exceeds page size");
+		throw std::runtime_error("VMCS exceeds page size");
 	}
 
 	if (basic_register.memory_type != static_cast<uint64_t>(MEMORY_TYPE_WRITE_BACK))
 	{
-	  throw std::runtime_error("VMCS memory type must be write-back");
+		throw std::runtime_error("VMCS memory type must be write-back");
 	}
 
 	if (basic_register.must_be_zero)
 	{
-	  throw std::runtime_error("Must-be-zero bit is not zero :O");
+		throw std::runtime_error("Must-be-zero bit is not zero :O");
 	}
 
 	ia32_vmx_ept_vpid_cap_register ept_vpid_cap_register{};
@@ -293,23 +293,22 @@ void enter_root_mode_on_cpu(vmx::state& vm_state)
 
 	if (__vmx_on(&launch_context->vmx_on_physical_address))
 	{
-	  throw std::runtime_error("Failed to execute vmx_on");
+		throw std::runtime_error("Failed to execute vmx_on");
 	}
 
 	auto destructor = utils::finally([]
 	{
-	  __vmx_off();
+		__vmx_off();
 	});
 
 	if (__vmx_vmclear(&launch_context->vmcs_physical_address))
 	{
-		
 		throw std::runtime_error("Failed to clear vmcs");
 	}
 
 	if (__vmx_vmptrld(&launch_context->vmcs_physical_address))
 	{
-	  throw std::runtime_error("Failed to load vmcs");
+		throw std::runtime_error("Failed to load vmcs");
 	}
 
 	destructor.cancel();
@@ -672,13 +671,13 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 
 	if (!is_virtualization_supported())
 	{
-	  throw std::runtime_error("VMX not supported on this core");
+		throw std::runtime_error("VMX not supported on this core");
 	}
 
 	vm_state->launch_context.launched = false;
 	vm_state->launch_context.system_directory_table_base = system_directory_table_base;
 
-        // Must be inlined here, otherwise the stack is broken
+	// Must be inlined here, otherwise the stack is broken
 	capture_cpu_context(vm_state->launch_context);
 
 	if (!vm_state->launch_context.launched)

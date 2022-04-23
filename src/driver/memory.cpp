@@ -107,41 +107,43 @@ namespace memory
 
 	bool prope_for_read(const void* address, const size_t length, const uint64_t alignment)
 	{
-	  __try
-	  {
-	    ProbeForRead(const_cast<volatile void*>(address), length, static_cast<ULONG>(alignment));
-	    return true;
-	  }
-	  __except (EXCEPTION_EXECUTE_HANDLER)
-	  {
-	    return false;
-	  }
+		__try
+		{
+			ProbeForRead(const_cast<volatile void*>(address), length, static_cast<ULONG>(alignment));
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return false;
+		}
 	}
 
 	void assert_readability(const void* address, const size_t length, const uint64_t alignment)
 	{
-	  if(!prope_for_read(address, length, alignment)) {
-	    throw std::runtime_error("Access violation");
-	  }
+		if (!prope_for_read(address, length, alignment))
+		{
+			throw std::runtime_error("Access violation");
+		}
 	}
 
 	bool prope_for_write(const void* address, const size_t length, const uint64_t alignment)
 	{
-	  __try
-	  {
-	    ProbeForWrite(const_cast<volatile void*>(address), length, static_cast<ULONG>(alignment));
-	    return true;
-	  }
-	  __except (EXCEPTION_EXECUTE_HANDLER)
-	  {
-	    return false;
-	  }
+		__try
+		{
+			ProbeForWrite(const_cast<volatile void*>(address), length, static_cast<ULONG>(alignment));
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return false;
+		}
 	}
 
 	void assert_writability(const void* address, const size_t length, const uint64_t alignment)
 	{
-	  if (!prope_for_write(address, length, alignment)) {
-	    throw std::runtime_error("Access violation");
-	  }
+		if (!prope_for_write(address, length, alignment))
+		{
+			throw std::runtime_error("Access violation");
+		}
 	}
 }

@@ -9,8 +9,7 @@ driver_device::driver_device(const std::string& driver_device)
 	                            nullptr,
 	                            OPEN_EXISTING,
 	                            NULL,
-	                            nullptr
-	);
+	                            nullptr);
 
 	if (!this->device_)
 	{
@@ -35,7 +34,7 @@ bool driver_device::send(const DWORD ioctl_code, const data& input, data& output
 	                                     static_cast<DWORD>(output.size()),
 	                                     &size_returned,
 	                                     nullptr
-	) != FALSE;
+			) != FALSE;
 
 	if (success && size_returned < output.size())
 	{
