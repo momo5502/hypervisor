@@ -36,11 +36,10 @@ namespace
 
 		return STATUS_SUCCESS;
 	}
-
-	// TODO: This is vulnerable as fuck. Optimize!
-	void apply_hook(const hook_request* request)
+	
+	void apply_hook(const hook_request& request)
 	{
-		auto* buffer = new uint8_t[request->source_data_size];
+		auto* buffer = new uint8_t[request.source_data_size];
 		if (!buffer)
 		{
 			throw std::runtime_error("Failed to copy buffer");
@@ -53,9 +52,15 @@ namespace
 			vmx::ept::free_translation_hints(translation_hints);
 		});
 
-		memcpy(buffer, request->source_data, request->source_data_size);
+		memcpy(buffer, request.source_data, request.source_data_size);
 
-		thread::kernel_thread t([&translation_hints, r = *request]()
+		auto* hypervisor = hypervisor::get_instance();
+	        if(!hypervisor)
+		{
+		  throw std::runtime_error("Hypervisor not installed");
+	        }
+
+		thread::kernel_thread t([&translation_hints, r = request]
 		{
 			debug_log("Pid: %d | Address: %p\n", r.process_id, r.target_address);
 
@@ -69,10 +74,8 @@ namespace
 			const auto name = process_handle.get_image_filename();
 			if (name)
 			{
-				debug_log("Attaching to %s\n", name);
+			  debug_log("Attaching to %s\n", name);
 			}
-
-			debug_log("Level: %d\n", static_cast<int>(KeGetCurrentIrql()));
 
 			process::scoped_process_attacher attacher{process_handle};
 			translation_hints = vmx::ept::generate_translation_hints(r.target_address, r.source_data_size);
@@ -82,14 +85,12 @@ namespace
 
 		if (!translation_hints)
 		{
-			debug_log("Failed to generate tranlsation hints");
+			debug_log("Failed to generate tranlsation hints\n");
 			return;
 		}
 
-		hypervisor::get_instance()->install_ept_hook(request->target_address, buffer, request->source_data_size,
+		hypervisor->install_ept_hook(request.target_address, buffer, request.source_data_size,
 		                                             translation_hints);
-
-		debug_log("Done1\n");
 	}
 
 	void unhook()
@@ -101,37 +102,69 @@ namespace
 		}
 	}
 
+        void try_apply_hook(const PIO_STACK_LOCATION irp_sp)
+	{
+	  if(irp_sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(hook_request))
+	  {
+	    throw std::runtime_error("Invalid hook request");
+	  }
+
+          const auto& request = *static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer);
+	  memory::assert_readability(request.source_data, request.source_data_size);
+	  memory::assert_readability(request.target_address, request.source_data_size);
+
+	  apply_hook(request);
+	}
+
+        void handle_irp(const PIRP irp)
+	{
+	  irp->IoStatus.Information = 0;
+	  irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+
+	  const auto irp_sp = IoGetCurrentIrpStackLocation(irp);
+
+	  if (irp_sp)
+	  {
+	    const auto ioctr_code = irp_sp->Parameters.DeviceIoControl.IoControlCode;
+
+	    switch (ioctr_code)
+	    {
+	    case HELLO_DRV_IOCTL:
+	      debug_log("Hello from the Driver!\n");
+	      break;
+	    case HOOK_DRV_IOCTL:
+	      try_apply_hook(irp_sp);
+	      break;
+	    case UNHOOK_DRV_IOCTL:
+	      unhook();
+	      break;
+	    default:
+	      debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
+	      irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+	      break;
+	    }
+	  }
+	}
+
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(
 		PDEVICE_OBJECT /*device_object*/, const PIRP irp)
 	{
 		PAGED_CODE()
 
-		irp->IoStatus.Information = 0;
-		irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
-
-		const auto irp_sp = IoGetCurrentIrpStackLocation(irp);
-
-		if (irp_sp)
+	        try
 		{
-			const auto ioctr_code = irp_sp->Parameters.DeviceIoControl.IoControlCode;
-
-			switch (ioctr_code)
-			{
-			case HELLO_DRV_IOCTL:
-				debug_log("Hello from the Driver!\n");
-				break;
-			case HOOK_DRV_IOCTL:
-				apply_hook(static_cast<hook_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer));
-				break;
-			case UNHOOK_DRV_IOCTL:
-				unhook();
-				break;
-			default:
-				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
-				irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
-				break;
-			}
-		}
+		  handle_irp(irp);
+	        }
+	        catch(std::exception& e)
+		{
+		  debug_log("Handling IRP failed: %s\n", e.what());
+		  irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+	        }
+	        catch(...)
+		{
+		  debug_log("Handling IRP failed\n");
+		  irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+	        }
 
 		IoCompleteRequest(irp, IO_NO_INCREMENT);
 

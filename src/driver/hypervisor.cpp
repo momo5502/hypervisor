@@ -61,6 +61,7 @@ namespace
 	}
 
         // This absolutely needs to be inlined. Otherwise the stack might be broken upon restoration
+        // See: https://github.com/ionescu007/SimpleVisor/issues/48
         #define capture_cpu_context(launch_context) \
 	      cpature_special_registers((launch_context).special_registers);\
 	      RtlCaptureContext(&(launch_context).context_frame);

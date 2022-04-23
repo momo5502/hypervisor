@@ -10,30 +10,6 @@
 
 #pragma comment(lib, "Shlwapi.lib")
 
-BOOL send_ioctl(HANDLE device, DWORD ioctl_code)
-{
-	//prepare input buffer:
-	DWORD bufSize = 0x4;
-	BYTE* inBuffer = (BYTE*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, bufSize);
-
-	//fill the buffer with some content:
-	RtlFillMemory(inBuffer, bufSize, 'A');
-
-	DWORD size_returned = 0;
-	BOOL is_ok = DeviceIoControl(device,
-	                             ioctl_code,
-	                             inBuffer,
-	                             bufSize,
-	                             NULL, //outBuffer -> None
-	                             0, //outBuffer size -> 0
-	                             &size_returned,
-	                             NULL
-	);
-	//release the input bufffer:
-	HeapFree(GetProcessHeap(), 0, (LPVOID)inBuffer);
-	return is_ok;
-}
-
 std::filesystem::path get_current_path()
 {
 	const auto module = GetModuleHandleA(nullptr);
