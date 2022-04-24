@@ -12,8 +12,8 @@ namespace process
 		process_handle(process_handle&& obj) noexcept;
 		process_handle& operator=(process_handle&& obj) noexcept;
 
-		process_handle(const process_handle&) = delete;
-		process_handle& operator=(const process_handle&) = delete;
+		process_handle(const process_handle& obj);
+		process_handle& operator=(const process_handle& obj);
 
 		operator bool() const;
 		operator PEPROCESS() const;

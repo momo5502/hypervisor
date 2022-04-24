@@ -35,6 +35,28 @@ namespace process
 		return *this;
 	}
 
+	process_handle::process_handle(const process_handle& obj)
+	{
+		this->operator=(std::move(obj));
+	}
+
+	process_handle& process_handle::operator=(const process_handle& obj)
+	{
+		if (this != &obj)
+		{
+			this->release();
+			this->own_ = obj.own_;
+			this->handle_ = obj.handle_;
+
+			if(this->own_ && this->handle_)
+			{
+				ObReferenceObject(this->handle_);
+			}
+		}
+
+		return *this;
+	}
+
 	process_handle::operator bool() const
 	{
 		return this->handle_ != nullptr;
