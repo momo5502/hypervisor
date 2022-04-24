@@ -1,5 +1,7 @@
 #include <iostream>
+#include <filesystem>
 #include <conio.h>
+#include <fstream>
 
 #include "std_include.hpp"
 #include "driver.hpp"
@@ -7,18 +9,9 @@
 
 #include <irp_data.hpp>
 
+#include "resource.hpp"
+
 #pragma comment(lib, "Shlwapi.lib")
-
-std::filesystem::path get_current_path()
-{
-	const auto module = GetModuleHandleA(nullptr);
-
-	char selfdir[MAX_PATH] = {0};
-	GetModuleFileNameA(module, selfdir, MAX_PATH);
-	PathRemoveFileSpecA(selfdir);
-
-	return selfdir;
-}
 
 void patch_data(const driver_device& driver_device, const uint32_t pid, const uint64_t addr, const uint8_t* buffer,
                 const size_t length)
@@ -51,9 +44,41 @@ void remove_hooks(const driver_device& driver_device)
 	(void)driver_device.send(UNHOOK_DRV_IOCTL, driver_device::data{});
 }
 
+std::vector<uint8_t> load_resource(const int id)
+{
+	auto* const res = FindResource(GetModuleHandleA(nullptr), MAKEINTRESOURCE(id), RT_RCDATA);
+	if (!res) return {};
+
+	auto* const handle = LoadResource(nullptr, res);
+	if (!handle) return {};
+
+	const auto* data_ptr =static_cast<uint8_t*>(LockResource(handle));
+	const auto data_size = SizeofResource(nullptr, res);
+
+	std::vector<uint8_t> data{};
+	data.assign(data_ptr, data_ptr + data_size);
+	return data;
+}
+
+std::filesystem::path extract_driver()
+{
+	const auto data = load_resource(DRIVER_BINARY);
+
+	auto driver_file = std::filesystem::temp_directory_path() / "driver.sys";
+
+	std::ofstream out_file{};
+	out_file.open(driver_file.generic_string(), std::ios::out | std::ios::binary);
+	out_file.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+	out_file.close();
+
+	return driver_file;
+}
+
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
-	driver driver{get_current_path() / "driver.sys", "MomoLul"};
+	const auto driver_file = extract_driver();
+
+	driver driver{ driver_file, "MomoLul"};
 	const driver_device driver_device{R"(\\.\HelloDev)"};
 
 	std::string pid_str{};

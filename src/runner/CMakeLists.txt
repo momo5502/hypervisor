@@ -12,8 +12,12 @@ target_precompile_headers(runner
 
 set_property(TARGET runner APPEND_STRING PROPERTY LINK_FLAGS " /MANIFESTUAC:\"level='requireAdministrator'\"")
 
-add_dependencies(runner driver)
-
 target_link_libraries(runner
 	shared
+	driver_file
+)
+
+set_source_files_properties(resource.rc PROPERTIES LANGUAGE RC)
+target_sources(runner PRIVATE
+	resource.rc
 )
