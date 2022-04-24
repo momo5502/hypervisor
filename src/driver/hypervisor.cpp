@@ -9,6 +9,9 @@
 #include "assembly.hpp"
 #include "string.hpp"
 
+#define DPL_USER   3
+#define DPL_SYSTEM 0
+
 namespace
 {
 	hypervisor* instance{nullptr};
@@ -163,7 +166,7 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
                                   vmx::ept_translation_hint* translation_hint)
 {
 	volatile long failures = 0;
-	thread::dispatch_on_all_cores([&]()
+	thread::dispatch_on_all_cores([&]
 	{
 		if (!this->try_install_ept_hook_on_core(destination, source, length, translation_hint))
 		{
@@ -176,7 +179,7 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
 
 void hypervisor::disable_all_ept_hooks() const
 {
-	thread::dispatch_on_all_cores([&]()
+	thread::dispatch_on_all_cores([&]
 	{
 		auto* vm_state = this->get_current_vm_state();
 		if (!vm_state)
@@ -203,7 +206,7 @@ void hypervisor::enable()
 	const auto cr3 = __readcr3();
 
 	volatile long failures = 0;
-	thread::dispatch_on_all_cores([&]()
+	thread::dispatch_on_all_cores([&]
 	{
 		if (!this->try_enable_core(cr3))
 		{
@@ -332,7 +335,8 @@ vmx::gdt_entry convert_gdt_entry(const uint64_t gdt_base, const uint16_t selecto
 		return result;
 	}
 
-	const auto* gdt_entry = reinterpret_cast<segment_descriptor_64*>(gdt_base + static_cast<uint64_t>(selector.index) * 8);
+	const auto* gdt_entry = reinterpret_cast<segment_descriptor_64*>(gdt_base + static_cast<uint64_t>(selector.index) *
+		8);
 
 	result.selector = selector;
 	result.limit = __segmentlimit(selector.flags);
@@ -377,16 +381,13 @@ void vmx_handle_invd()
 	__wbinvd();
 }
 
-#define DPL_USER                3
-#define DPL_SYSTEM              0
-
 void vmx_handle_cpuid(vmx::guest_context& guest_context)
 {
 	INT32 cpu_info[4];
 
-	if ((guest_context.vp_regs->Rax == 0x41414141) &&
-		(guest_context.vp_regs->Rcx == 0x42424242) &&
-		((read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM))
+	if (guest_context.vp_regs->Rax == 0x41414141 &&
+		guest_context.vp_regs->Rcx == 0x42424242 &&
+		(read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM)
 	{
 		guest_context.exit_vm = true;
 		return;
