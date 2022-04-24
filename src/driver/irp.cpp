@@ -37,34 +37,15 @@ namespace
 		return STATUS_SUCCESS;
 	}
 
-	void apply_hook(const hook_request& request)
+	vmx::ept_translation_hint* generate_translation_hints(uint32_t process_id, const void* target_address, size_t size)
 	{
-		auto* buffer = new uint8_t[request.source_data_size];
-		if (!buffer)
+		vmx::ept_translation_hint* translation_hints{nullptr};
+
+		thread::kernel_thread t([&translation_hints, process_id, target_address, size]
 		{
-			throw std::runtime_error("Failed to copy buffer");
-		}
+			debug_log("Looking up process: %d\n", process_id);
 
-		vmx::ept_translation_hint* translation_hints = nullptr;
-		auto destructor = utils::finally([&translation_hints, &buffer]()
-		{
-			delete[] buffer;
-			vmx::ept::free_translation_hints(translation_hints);
-		});
-
-		memcpy(buffer, request.source_data, request.source_data_size);
-
-		auto* hypervisor = hypervisor::get_instance();
-		if (!hypervisor)
-		{
-			throw std::runtime_error("Hypervisor not installed");
-		}
-
-		thread::kernel_thread t([&translation_hints, r = request]
-		{
-			debug_log("Pid: %d | Address: %p\n", r.process_id, r.target_address);
-
-			const auto process_handle = process::find_process_by_id(r.process_id);
+			const auto process_handle = process::find_process_by_id(process_id);
 			if (!process_handle || !process_handle.is_alive())
 			{
 				debug_log("Bad process\n");
@@ -78,10 +59,38 @@ namespace
 			}
 
 			process::scoped_process_attacher attacher{process_handle};
-			translation_hints = vmx::ept::generate_translation_hints(r.target_address, r.source_data_size);
+
+			debug_log("Generating translation hints for address: %p\n", target_address);
+			translation_hints = vmx::ept::generate_translation_hints(target_address, size);
 		});
 
 		t.join();
+
+		return translation_hints;
+	}
+
+	void apply_hook(const hook_request& request)
+	{
+		auto* hypervisor = hypervisor::get_instance();
+		if (!hypervisor)
+		{
+			throw std::runtime_error("Hypervisor not installed");
+		}
+
+		std::unique_ptr<uint8_t[]> buffer(new uint8_t[request.source_data_size]);
+		if (!buffer)
+		{
+			throw std::runtime_error("Failed to copy buffer");
+		}
+
+		vmx::ept_translation_hint* translation_hints = nullptr;
+		auto destructor = utils::finally([&translation_hints]()
+		{
+			vmx::ept::free_translation_hints(translation_hints);
+		});
+
+		memcpy(buffer.get(), request.source_data, request.source_data_size);
+		translation_hints = generate_translation_hints(request.process_id, request.target_address, request.source_data_size);
 
 		if (!translation_hints)
 		{
@@ -89,7 +98,7 @@ namespace
 			return;
 		}
 
-		hypervisor->install_ept_hook(request.target_address, buffer, request.source_data_size,
+		hypervisor->install_ept_hook(request.target_address, buffer.get(), request.source_data_size,
 		                             translation_hints);
 	}
 

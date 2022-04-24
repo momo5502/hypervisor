@@ -7,9 +7,11 @@ namespace std
 	class unique_ptr
 	{
 	public:
+		using value_type = typename remove_extent<T>::type;
+
 		unique_ptr() = default;
 
-		unique_ptr(T* pointer)
+		unique_ptr(value_type* pointer)
 			: pointer_(pointer)
 		{
 		}
@@ -44,22 +46,27 @@ namespace std
 		unique_ptr(const unique_ptr<T>& obj) = delete;
 		unique_ptr& operator=(const unique_ptr<T>& obj) = delete;
 
-		T* operator->()
+		value_type* get()
 		{
 			return this->pointer_;
 		}
 
-		const T* operator->() const
+		value_type* operator->()
 		{
 			return this->pointer_;
 		}
 
-		T& operator*()
+		const value_type* operator->() const
+		{
+			return this->pointer_;
+		}
+
+		value_type& operator*()
 		{
 			return *this->pointer_;
 		}
 
-		const T& operator*() const
+		const value_type& operator*() const
 		{
 			return *this->pointer_;
 		}
@@ -71,7 +78,7 @@ namespace std
 
 	private:
 		static constexpr auto is_array_type = is_array<T>::value;
-		T* pointer_{nullptr};
+		value_type* pointer_{nullptr};
 
 		void delete_pointer() const
 		{

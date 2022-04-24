@@ -132,4 +132,14 @@ namespace std
 	struct is_array<T[N]> : std::true_type
 	{
 	};
+
+
+	template<class T>
+	struct remove_extent { typedef T type; };
+
+	template<class T>
+	struct remove_extent<T[]> { typedef T type; };
+
+	template<class T, std::size_t N>
+	struct remove_extent<T[N]> { typedef T type; };
 }
