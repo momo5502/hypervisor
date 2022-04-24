@@ -53,41 +53,38 @@ void remove_hooks(const driver_device& driver_device)
 
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
-	printf("Pid: %lu\n", GetCurrentProcessId());
-
 	driver driver{get_current_path() / "driver.sys", "MomoLul"};
 	const driver_device driver_device{R"(\\.\HelloDev)"};
 
-	std::string pid;
-	std::cout << "Please, enter the pid: ";
-	std::getline(std::cin, pid);
+	std::string pid_str{};
+	printf("Please enter the pid: ");
+	std::getline(std::cin, pid_str);
 
-	int _pid = atoi(pid.data());
-	printf("Pid was : %d\n", _pid);
+	const auto pid = atoi(pid_str.data());
 
 	// IW5
-	insert_nop(driver_device, _pid, 0x4488A8, 2); // Force calling CG_DrawFriendOrFoeTargetBoxes
-	insert_nop(driver_device, _pid, 0x47F6C7, 2); // Ignore blind-eye perks
-	insert_nop(driver_device, _pid, 0x44894C, 2); // Miniconsole
+	insert_nop(driver_device, pid, 0x4488A8, 2); // Force calling CG_DrawFriendOrFoeTargetBoxes
+	insert_nop(driver_device, pid, 0x47F6C7, 2); // Ignore blind-eye perks
+	insert_nop(driver_device, pid, 0x44894C, 2); // Miniconsole
 
 	// T6
-	//insert_nop(driver_device, _pid, 0x7B53AE, 6); // Enable chopper boxes
-	//insert_nop(driver_device, _pid, 0x7B5461, 6); // Ignore player not visible
-	//insert_nop(driver_device, _pid, 0x7B5471, 6); // Ignore blind-eye perks
+	//insert_nop(driver_device, pid, 0x7B53AE, 6); // Enable chopper boxes
+	//insert_nop(driver_device, pid, 0x7B5461, 6); // Ignore player not visible
+	//insert_nop(driver_device, pid, 0x7B5471, 6); // Ignore blind-eye perks
 
 	//const uint8_t data[] = {0x31, 0xC0, 0xC3};
-	//patch_data(driver_device, _pid, 0x4EEFD0, data, sizeof(data));
+	//patch_data(driver_device, pid, 0x4EEFD0, data, sizeof(data));
 
 	//const uint8_t data[] = {0xEB};
-	//patch_data(driver_device, _pid, 0x43AE44, data, sizeof(data));
+	//patch_data(driver_device, pid, 0x43AE44, data, sizeof(data));
 
 	printf("Press any key to disable all hooks!\n");
-	_getch();
+	(void)_getch();
 
 	remove_hooks(driver_device);
 
 	printf("Press any key to exit!\n");
-	_getch();
+	(void)_getch();
 }
 
 int main(const int argc, char* argv[])
