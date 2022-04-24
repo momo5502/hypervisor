@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 #set(CMAKE_DISABLE_SOURCE_CHANGES ON)
 set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
 
-project(secret LANGUAGES C CXX)
+project(hypervisor LANGUAGES C CXX)
 
 ##########################################
 
