@@ -1,4 +1,10 @@
-set(VCRTL_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/vcrtl/$<CONFIG>/vcrtl_driver.lib")
+get_property(IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+
+if(IS_MULTI_CONFIG)
+  set(VCRTL_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/vcrtl/$<CONFIG>/vcrtl_driver.lib")
+else()
+  set(VCRTL_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/vcrtl/vcrtl_driver.lib")
+endif()
 
 ExternalProject_Add(
   vcrtl_build
