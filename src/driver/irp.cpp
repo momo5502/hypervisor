@@ -138,9 +138,6 @@ namespace
 
 			switch (ioctr_code)
 			{
-			case HELLO_DRV_IOCTL:
-				debug_log("Hello from the Driver!\n");
-				break;
 			case HOOK_DRV_IOCTL:
 				try_apply_hook(irp_sp);
 				break;

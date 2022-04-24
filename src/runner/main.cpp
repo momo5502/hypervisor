@@ -46,17 +46,17 @@ void insert_nop(const driver_device& driver_device, const uint32_t pid, const ui
 	patch_data(driver_device, pid, addr, buffer.data(), buffer.size());
 }
 
+void remove_hooks(const driver_device& driver_device)
+{
+	(void)driver_device.send(UNHOOK_DRV_IOCTL, driver_device::data{});
+}
+
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
 	printf("Pid: %lu\n", GetCurrentProcessId());
 
 	driver driver{get_current_path() / "driver.sys", "MomoLul"};
-	driver_device driver_device{"\\\\.\\HelloDev"};
-
-	driver_device::data input{};
-	input.resize(4);
-
-	(void)driver_device.send(HELLO_DRV_IOCTL, input);
+	const driver_device driver_device{R"(\\.\HelloDev)"};
 
 	std::string pid;
 	std::cout << "Please, enter the pid: ";
@@ -84,8 +84,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	printf("Press any key to disable all hooks!\n");
 	_getch();
 
-	input.resize(0);
-	(void)driver_device.send(UNHOOK_DRV_IOCTL, input);
+	remove_hooks(driver_device);
 
 	printf("Press any key to exit!\n");
 	_getch();
