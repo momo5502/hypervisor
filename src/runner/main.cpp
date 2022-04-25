@@ -90,18 +90,20 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	// IW5
 	insert_nop(driver_device, pid, 0x4488A8, 2); // Force calling CG_DrawFriendOrFoeTargetBoxes
 	insert_nop(driver_device, pid, 0x47F6C7, 2); // Ignore blind-eye perks
-	insert_nop(driver_device, pid, 0x44894C, 2); // Miniconsole
+	//insert_nop(driver_device, pid, 0x44894C, 2); // Miniconsole
 
-	// T6
-	//insert_nop(driver_device, pid, 0x7B53AE, 6); // Enable chopper boxes
-	//insert_nop(driver_device, pid, 0x7B5461, 6); // Ignore player not visible
-	//insert_nop(driver_device, pid, 0x7B5471, 6); // Ignore blind-eye perks
+	// Always full alpha
+	constexpr uint8_t data1[] = {0xD9, 0xE8, 0xC3};
+	patch_data(driver_device, pid, 0x47F0D0, data1, sizeof(data1));
 
-	//const uint8_t data[] = {0x31, 0xC0, 0xC3};
-	//patch_data(driver_device, pid, 0x4EEFD0, data, sizeof(data));
+	// Compass show enemies
+	constexpr uint8_t data2[] = {0xEB, 0x13};
+	patch_data(driver_device, pid, 0x4437A8, data2, sizeof(data2));
 
-	//const uint8_t data[] = {0xEB};
-	//patch_data(driver_device, pid, 0x43AE44, data, sizeof(data));
+	// Enemy arrows
+	constexpr uint8_t data3[] = {0xEB};
+	patch_data(driver_device, pid, 0x443A2A, data3, sizeof(data3));
+	patch_data(driver_device, pid, 0x443978, data3, sizeof(data3));
 
 	printf("Press any key to disable all hooks!\n");
 	(void)_getch();
