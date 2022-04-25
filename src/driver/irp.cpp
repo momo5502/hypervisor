@@ -90,7 +90,8 @@ namespace
 		});
 
 		memcpy(buffer.get(), request.source_data, request.source_data_size);
-		translation_hints = generate_translation_hints(request.process_id, request.target_address, request.source_data_size);
+		translation_hints = generate_translation_hints(request.process_id, request.target_address,
+		                                               request.source_data_size);
 
 		if (!translation_hints)
 		{
@@ -153,7 +154,7 @@ namespace
 	}
 
 	_Function_class_(DRIVER_DISPATCH) NTSTATUS io_ctl_handler(
-			PDEVICE_OBJECT /*device_object*/, const PIRP irp)
+		PDEVICE_OBJECT /*device_object*/, const PIRP irp)
 	{
 		PAGED_CODE()
 

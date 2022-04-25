@@ -38,7 +38,7 @@ namespace std
 	// TEMPLATE FUNCTION forward
 	template <class _Ty>
 	constexpr _Ty&& forward(
-			typename remove_reference<_Ty>::type& _Arg)
+		typename remove_reference<_Ty>::type& _Arg)
 	{
 		// forward an lvalue as either an lvalue or an rvalue
 		return (static_cast<_Ty&&>(_Arg));
@@ -46,7 +46,7 @@ namespace std
 
 	template <class _Ty>
 	constexpr _Ty&& forward(
-			typename remove_reference<_Ty>::type&& _Arg)
+		typename remove_reference<_Ty>::type&& _Arg)
 	{
 		// forward an rvalue as an rvalue
 		return (static_cast<_Ty&&>(_Arg));
@@ -134,12 +134,21 @@ namespace std
 	};
 
 
-	template<class T>
-	struct remove_extent { typedef T type; };
+	template <class T>
+	struct remove_extent
+	{
+		typedef T type;
+	};
 
-	template<class T>
-	struct remove_extent<T[]> { typedef T type; };
+	template <class T>
+	struct remove_extent<T[]>
+	{
+		typedef T type;
+	};
 
-	template<class T, std::size_t N>
-	struct remove_extent<T[N]> { typedef T type; };
+	template <class T, std::size_t N>
+	struct remove_extent<T[N]>
+	{
+		typedef T type;
+	};
 }

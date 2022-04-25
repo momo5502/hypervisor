@@ -52,7 +52,7 @@ std::vector<uint8_t> load_resource(const int id)
 	auto* const handle = LoadResource(nullptr, res);
 	if (!handle) return {};
 
-	const auto* data_ptr =static_cast<uint8_t*>(LockResource(handle));
+	const auto* data_ptr = static_cast<uint8_t*>(LockResource(handle));
 	const auto data_size = SizeofResource(nullptr, res);
 
 	std::vector<uint8_t> data{};
@@ -78,7 +78,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
 	const auto driver_file = extract_driver();
 
-	driver driver{ driver_file, "MomoLul"};
+	driver driver{driver_file, "MomoLul"};
 	const driver_device driver_device{R"(\\.\HelloDev)"};
 
 	std::string pid_str{};

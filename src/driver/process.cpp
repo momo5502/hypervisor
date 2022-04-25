@@ -48,7 +48,7 @@ namespace process
 			this->own_ = obj.own_;
 			this->handle_ = obj.handle_;
 
-			if(this->own_ && this->handle_)
+			if (this->own_ && this->handle_)
 			{
 				ObReferenceObject(this->handle_);
 			}

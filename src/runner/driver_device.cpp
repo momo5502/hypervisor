@@ -34,7 +34,7 @@ bool driver_device::send(const DWORD ioctl_code, const data& input, data& output
 	                                     static_cast<DWORD>(output.size()),
 	                                     &size_returned,
 	                                     nullptr
-			) != FALSE;
+	) != FALSE;
 
 	if (success && size_returned < output.size())
 	{

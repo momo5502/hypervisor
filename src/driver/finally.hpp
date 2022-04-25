@@ -50,6 +50,6 @@ namespace utils
 	finally(F&& f) noexcept
 	{
 		return final_action<typename std::remove_cv<typename std::remove_reference<F>::type>::type>(
-				std::forward<F>(f));
+			std::forward<F>(f));
 	}
 }

@@ -49,13 +49,13 @@ namespace vmx
 				if (mtrr_data[i].enabled != FALSE)
 				{
 					mtrr_data[i].physical_address_min = mtrr_base.page_frame_number *
-							MTRR_PAGE_SIZE;
+						MTRR_PAGE_SIZE;
 
 					unsigned long bit{};
 					_BitScanForward64(&bit, mtrr_mask.page_frame_number * MTRR_PAGE_SIZE);
 					mtrr_data[i].physical_address_max = mtrr_data[i].
-							physical_address_min +
-							(1ULL << bit) - 1;
+						physical_address_min +
+						(1ULL << bit) - 1;
 				}
 			}
 		}
@@ -198,7 +198,7 @@ namespace vmx
 		this->epml4[0].write_access = 1;
 		this->epml4[0].execute_access = 1;
 		this->epml4[0].page_frame_number = memory::get_physical_address(&this->epdpt) /
-				PAGE_SIZE;
+			PAGE_SIZE;
 
 		// --------------------------
 
@@ -232,7 +232,7 @@ namespace vmx
 			{
 				this->epde[i][j].page_frame_number = (i * 512) + j;
 				this->epde[i][j].memory_type = mtrr_adjust_effective_memory_type(
-						mtrr_data, this->epde[i][j].page_frame_number * 2_mb, MEMORY_TYPE_WRITE_BACK);
+					mtrr_data, this->epde[i][j].page_frame_number * 2_mb, MEMORY_TYPE_WRITE_BACK);
 			}
 		}
 	}
@@ -366,7 +366,7 @@ namespace vmx
 		if (translation_hint)
 		{
 			physical_address = translation_hint->physical_base_address + ADDRMASK_EPT_PML1_OFFSET(
-					reinterpret_cast<uint64_t>(destination));
+				reinterpret_cast<uint64_t>(destination));
 		}
 		else
 		{
