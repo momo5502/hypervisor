@@ -76,7 +76,14 @@ namespace vmx
 		}
 	}
 
-	ept::ept() = default;
+	ept::ept()
+	{
+		// Directly initializing these fields kills the compiler ._.
+		// https://developercommunity.visualstudio.com/t/clexe-using-20gb-of-memory-compiling-small-file-in/407999
+		memset(this->epml4, 0, sizeof(this->epml4));
+		memset(this->epdpt, 0, sizeof(this->epdpt));
+		memset(this->epde, 0, sizeof(this->epde));
+	}
 
 	ept::~ept()
 	{
