@@ -16,8 +16,8 @@ jobs:
     strategy:
       matrix:
         configuration:
-          - debug
-          - release
+          - Debug
+          - Release
     steps:
       - name: Check out files
         uses: actions/checkout@v2
@@ -34,28 +34,25 @@ jobs:
       - name: Setup CMake
         uses: lukka/get-cmake@latest
 
-      - name: Setup Ninja
-        uses: ashutoshvarma/setup-ninja@master
-
       - name: Set up problem matching
         uses: ammaraskar/msvc-problem-matcher@master
 
-      - name: Stup DevCmd
+      - name: Setup DevCmd
         uses: ilammy/msvc-dev-cmd@v1.10.0
         with:
           arch: x64
 
-      - name: Configure ${{matrix.configuration}}
-        run: cmake --preset=${{matrix.configuration}} -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl
+      - name: Configure CMake
+        run: cmake --preset=vs2019
 
       - name: Build ${{matrix.configuration}}
-        run: cmake --build --preset=${{matrix.configuration}}
+        run: cmake --build --preset=vs2019 --config ${{matrix.configuration}}
 
       - name: Upload ${{matrix.configuration}} binaries
         uses: actions/upload-artifact@v2
         with:
           name: ${{matrix.configuration}} binaries
           path: |
-            build/${{matrix.configuration}}/artifacts/*.exe
-            build/${{matrix.configuration}}/artifacts/*.pdb
-            build/${{matrix.configuration}}/artifacts/*.sys
+            build/vs2019/artifacts-${{matrix.configuration}}/*.exe
+            build/vs2019/artifacts-${{matrix.configuration}}/*.pdb
+            build/vs2019/artifacts-${{matrix.configuration}}/*.sys
