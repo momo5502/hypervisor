@@ -31,6 +31,16 @@ jobs:
         with:
           msbuild-architecture: x64
 
+      - name: Download WDK
+        uses: suisei-cn/actions-download-file@v1
+        id: downloadfile
+        with:
+          url: "https://go.microsoft.com/fwlink/?linkid=2166289"
+          target: ./
+
+      - name: Install WDK
+        run: wdksetup.exe /features + /q
+
       - name: Setup CMake
         uses: lukka/get-cmake@latest
 
