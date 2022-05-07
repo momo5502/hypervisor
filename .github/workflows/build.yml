@@ -26,20 +26,10 @@ jobs:
           fetch-depth: 0
           lfs: false
 
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v1.1
-        with:
-          msbuild-architecture: x64
-
-      - name: Stup DevCmd
-        uses: ilammy/msvc-dev-cmd@v1.10.0
-        with:
-          arch: x64
-
       - name: Install WDK
         run: |
           curl -L --output wdksetup.exe https://go.microsoft.com/fwlink/?linkid=2166289
-          .\wdksetup.exe /ceip off /features + /q
+          cmd /c start /wait wdksetup.exe /ceip off /quiet /features +
 
       - name: Setup CMake
         uses: lukka/get-cmake@latest
@@ -49,6 +39,11 @@ jobs:
 
       - name: Set up problem matching
         uses: ammaraskar/msvc-problem-matcher@master
+
+      - name: Stup DevCmd
+        uses: ilammy/msvc-dev-cmd@v1.10.0
+        with:
+          arch: x64
 
       - name: Configure ${{matrix.configuration}}
         run: cmake --preset=${{matrix.configuration}} -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl
