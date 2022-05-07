@@ -34,7 +34,7 @@ jobs:
       - name: Install WDK
         run: |
           curl -L --output wdksetup.exe https://go.microsoft.com/fwlink/?linkid=2166289
-          wdksetup.exe /features + /q
+          .\wdksetup.exe /features + /q
 
       - name: Setup CMake
         uses: lukka/get-cmake@latest
