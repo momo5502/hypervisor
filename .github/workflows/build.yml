@@ -42,22 +42,22 @@ jobs:
         with:
           msbuild-architecture: x64
 
-      #- name: Setup DevCmd
-      #  uses: ilammy/msvc-dev-cmd@v1.10.0
-      #  with:
-      #    arch: x64
+      - name: Setup DevCmd
+        uses: ilammy/msvc-dev-cmd@v1.10.0
+        with:
+          arch: x64
 
       - name: Configure CMake
-        run: cmake --preset=vs2019
+        run: cmake --preset=vs2022
 
       - name: Build ${{matrix.configuration}}
-        run: cmake --build --preset=vs2019 --config ${{matrix.configuration}}
+        run: cmake --build --preset=vs2022 --config ${{matrix.configuration}}
 
       - name: Upload ${{matrix.configuration}} binaries
         uses: actions/upload-artifact@v2
         with:
           name: ${{matrix.configuration}} binaries
           path: |
-            build/vs2019/artifacts-${{matrix.configuration}}/*.exe
-            build/vs2019/artifacts-${{matrix.configuration}}/*.pdb
-            build/vs2019/artifacts-${{matrix.configuration}}/*.sys
+            build/vs2022/artifacts-${{matrix.configuration}}/*.exe
+            build/vs2022/artifacts-${{matrix.configuration}}/*.pdb
+            build/vs2022/artifacts-${{matrix.configuration}}/*.sys
