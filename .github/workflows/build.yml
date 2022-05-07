@@ -40,11 +40,11 @@ jobs:
       - name: Set up problem matching
         uses: ammaraskar/msvc-problem-matcher@master
 
-      - name: Run CMake
-        uses: lukka/run-cmake@v10
-        with:
-          configurePreset: '${{matrix.configuration}}'
-          buildPreset: '${{matrix.configuration}}'
+      - name: Configure ${{matrix.configuration}}
+        run: cmake --preset=${{matrix.configuration}}
+
+      - name: Build ${{matrix.configuration}}
+        run: cmake --build --preset=${{matrix.configuration}}
 
       - name: Upload ${{matrix.configuration}} binaries
         uses: actions/upload-artifact@v2
