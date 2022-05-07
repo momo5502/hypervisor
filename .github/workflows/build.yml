@@ -1,0 +1,56 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - "*"
+  pull_request:
+    branches:
+      - "*"
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        configuration:
+          - debug
+          - release
+    steps:
+      - name: Check out files
+        uses: actions/checkout@v2
+        with:
+          submodules: true
+          fetch-depth: 0
+          lfs: false
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.1
+        with:
+          msbuild-architecture: x64
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Setup Ninja
+        uses: ashutoshvarma/setup-ninja@master
+
+      - name: Set up problem matching
+        uses: ammaraskar/msvc-problem-matcher@master
+
+      - name: Run CMake
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: '${{matrix.configuration}}'
+          buildPreset: '${{matrix.configuration}}'
+
+      - name: Upload ${{matrix.configuration}} binaries
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{matrix.configuration}} binaries
+          path: |
+            build/${{matrix.configuration}}/artifacts/*.exe
+            build/${{matrix.configuration}}/artifacts/*.pdb
+            build/${{matrix.configuration}}/artifacts/*.sys
