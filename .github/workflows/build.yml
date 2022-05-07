@@ -37,10 +37,15 @@ jobs:
       - name: Set up problem matching
         uses: ammaraskar/msvc-problem-matcher@master
 
-      - name: Setup DevCmd
-        uses: ilammy/msvc-dev-cmd@v1.10.0
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.1
         with:
-          arch: x64
+          msbuild-architecture: x64
+
+      #- name: Setup DevCmd
+      #  uses: ilammy/msvc-dev-cmd@v1.10.0
+      #  with:
+      #    arch: x64
 
       - name: Configure CMake
         run: cmake --preset=vs2019
