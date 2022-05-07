@@ -26,15 +26,15 @@ jobs:
           fetch-depth: 0
           lfs: false
 
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v1.1
+      - name: setup devcmd
+        uses: ilammy/msvc-dev-cmd@v1.3.0
         with:
-          msbuild-architecture: x64
+          arch: x64
 
       - name: Install WDK
         run: |
           curl -L --output wdksetup.exe https://go.microsoft.com/fwlink/?linkid=2166289
-          .\wdksetup.exe /features + /q
+          .\wdksetup.exe /ceip off /features + /q
 
       - name: Setup CMake
         uses: lukka/get-cmake@latest
