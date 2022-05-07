@@ -32,7 +32,7 @@ jobs:
           msbuild-architecture: x64
 
       - name: Stup DevCmd
-        uses: ilammy/msvc-dev-cmd@v1.3.0
+        uses: ilammy/msvc-dev-cmd@v1.10.0
         with:
           arch: x64
 
