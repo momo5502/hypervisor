@@ -37,6 +37,7 @@ jobs:
         with:
           url: "https://go.microsoft.com/fwlink/?linkid=2166289"
           target: ./
+          filename: wdksetup.exe
 
       - name: Install WDK
         run: wdksetup.exe /features + /q
