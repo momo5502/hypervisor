@@ -1,4 +1,3 @@
-
 {
     "version": 2,
     "cmakeMinimumRequired": {
@@ -48,6 +47,14 @@
         {
             "name": "debug",
             "configurePreset": "debug"
+        },
+        {
+            "name": "vs2019",
+            "configurePreset": "vs2019"
+        },
+        {
+            "name": "vs2022",
+            "configurePreset": "vs2022"
         }
     ]
 }
