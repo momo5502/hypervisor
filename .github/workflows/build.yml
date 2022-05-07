@@ -26,7 +26,12 @@ jobs:
           fetch-depth: 0
           lfs: false
 
-      - name: setup devcmd
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.1
+        with:
+          msbuild-architecture: x64
+
+      - name: Stup DevCmd
         uses: ilammy/msvc-dev-cmd@v1.3.0
         with:
           arch: x64
