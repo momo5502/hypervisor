@@ -32,12 +32,7 @@ jobs:
           msbuild-architecture: x64
 
       - name: Download WDK
-        uses: suisei-cn/actions-download-file@v1
-        id: downloadfile
-        with:
-          url: "https://go.microsoft.com/fwlink/?linkid=2166289"
-          target: ./
-          filename: wdksetup.exe
+        run: curl -L --output wdksetup.exe https://go.microsoft.com/fwlink/?linkid=2166289
 
       - name: Install WDK
         run: wdksetup.exe /features + /q
