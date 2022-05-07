@@ -41,7 +41,7 @@ jobs:
         uses: ammaraskar/msvc-problem-matcher@master
 
       - name: Configure ${{matrix.configuration}}
-        run: cmake --preset=${{matrix.configuration}}
+        run: cmake --preset=${{matrix.configuration}} -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl
 
       - name: Build ${{matrix.configuration}}
         run: cmake --build --preset=${{matrix.configuration}}
