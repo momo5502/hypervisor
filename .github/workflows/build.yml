@@ -16,8 +16,8 @@ jobs:
     strategy:
       matrix:
         configuration:
-          - Debug
-          - Release
+          - debug
+          - release
     steps:
       - name: Check out files
         uses: actions/checkout@v2
@@ -34,30 +34,28 @@ jobs:
       - name: Setup CMake
         uses: lukka/get-cmake@latest
 
-      - name: Set up problem matching
+      - name: Setup problem matching
         uses: ammaraskar/msvc-problem-matcher@master
-
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v1.1
-        with:
-          msbuild-architecture: x64
 
       - name: Setup DevCmd
         uses: ilammy/msvc-dev-cmd@v1.10.0
         with:
           arch: x64
 
+      - name: Setup Ninja
+        uses: ashutoshvarma/setup-ninja@master
+
       - name: Configure CMake
-        run: cmake --preset=vs2022
+        run: cmake --preset=${{matrix.configuration}}
 
       - name: Build ${{matrix.configuration}}
-        run: cmake --build --preset=vs2022 --config ${{matrix.configuration}}
+        run: cmake --build --preset=${{matrix.configuration}}
 
       - name: Upload ${{matrix.configuration}} binaries
         uses: actions/upload-artifact@v2
         with:
           name: ${{matrix.configuration}} binaries
           path: |
-            build/vs2022/artifacts-${{matrix.configuration}}/*.exe
-            build/vs2022/artifacts-${{matrix.configuration}}/*.pdb
-            build/vs2022/artifacts-${{matrix.configuration}}/*.sys
+            build/${{matrix.configuration}}/artifacts/*.exe
+            build/${{matrix.configuration}}/artifacts/*.pdb
+            build/${{matrix.configuration}}/artifacts/*.sys
