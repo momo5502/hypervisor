@@ -11,6 +11,8 @@
 
 #include "resource.hpp"
 
+#include "launcher/launcher.hpp"
+
 #pragma comment(lib, "Shlwapi.lib")
 
 void patch_data(const driver_device& driver_device, const uint32_t pid, const uint64_t addr, const uint8_t* buffer,
@@ -76,6 +78,8 @@ std::filesystem::path extract_driver()
 
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
+	//launcher().run();
+
 	const auto driver_file = extract_driver();
 
 	driver driver{driver_file, "MomoLul"};

@@ -1,5 +1,5 @@
-file(GLOB runner_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
-file(GLOB runner_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
+file(GLOB_RECURSE runner_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+file(GLOB_RECURSE  runner_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
 
 add_executable(runner
 	${runner_sources}
