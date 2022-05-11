@@ -78,7 +78,7 @@ std::filesystem::path extract_driver()
 
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
-	//launcher().run();
+	launcher().run();
 
 	const auto driver_file = extract_driver();
 
