@@ -35,8 +35,8 @@ html_frame::html_frame()
 
 	if (needs_restart)
 	{
-		//utils::nt::relaunch_self();
-		//utils::nt::terminate(0);
+		utils::nt::relaunch_self();
+		utils::nt::terminate(0);
 	}
 }
 
