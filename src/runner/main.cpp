@@ -1,15 +1,20 @@
+#include "std_include.hpp"
+
 #include <iostream>
 #include <filesystem>
 #include <conio.h>
 #include <fstream>
 
-#include "std_include.hpp"
+
 #include "driver.hpp"
 #include "driver_device.hpp"
+#include "process.hpp"
 
 #include <irp_data.hpp>
 
 #include "resource.hpp"
+#include "utils/io.hpp"
+#include "utils/nt.hpp"
 
 #pragma comment(lib, "Shlwapi.lib")
 
@@ -74,20 +79,95 @@ std::filesystem::path extract_driver()
 	return driver_file;
 }
 
+std::vector<std::pair<size_t, size_t>> find_executable_regions(const std::string& pe_file)
+{
+	std::string data{};
+	if (!utils::io::read_file(pe_file, &data))
+	{
+		return {};
+	}
+
+	const utils::nt::library library(reinterpret_cast<HMODULE>(data.data()));
+	if (!library.is_valid())
+	{
+		return {};
+	}
+
+	const auto section_headers = library.get_section_headers();
+
+	std::vector<std::pair<size_t, size_t>> regions{};
+	for (const auto& section_header : section_headers)
+	{
+		if (section_header->Characteristics & IMAGE_SCN_MEM_EXECUTE)
+		{
+			regions.emplace_back(section_header->VirtualAddress, section_header->Misc.VirtualSize);
+		}
+	}
+
+	return regions;
+}
+
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
-	const auto driver_file = extract_driver();
-
-	driver driver{driver_file, "MomoLul"};
-	const driver_device driver_device{R"(\\.\HelloDev)"};
-
-	//launcher().run();
-
 	std::string pid_str{};
 	printf("Please enter the pid: ");
 	std::getline(std::cin, pid_str);
 
 	const auto pid = atoi(pid_str.data());
+
+	printf("Opening process...\n");
+	const auto proc = process::open(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
+	if (!proc)
+	{
+		printf("Failed to open process...\n");
+		return;
+	}
+
+	printf("Reading modules...\n");
+	const auto modules = process::get_modules(proc);
+	printf("Found %zu modules\n", modules.size());
+
+	std::vector<std::string> module_files{};
+	module_files.reserve(modules.size());
+
+	int i = 0;
+	for (const auto& module : modules)
+	{
+		auto name = process::get_module_filename(proc, module);
+		printf("(%i)\t%p: %s\n", i++, static_cast<void*>(module), name.data());
+		module_files.emplace_back(std::move(name));
+	}
+
+	std::string module_str{};
+	printf("\nPlease enter the module number: ");
+	std::getline(std::cin, module_str);
+
+	const auto module_num = atoi(module_str.data());
+
+	if (module_num < 0 || static_cast<size_t>(module_num) >= modules.size())
+	{
+		printf("Invalid module num\n");
+		_getch();
+		return;
+	}
+
+	const auto module_base = reinterpret_cast<uint8_t*>(modules[module_num]);
+	const auto& file = module_files[module_num];
+	printf("Analyzing %s...\n", file.data());
+	const auto regions = find_executable_regions(file);
+
+	for (const auto& region : regions)
+	{
+		printf("%p - %zu\n", module_base + region.first, region.second);
+	}
+
+	_getch();
+	return;
+
+	const auto driver_file = extract_driver();
+
+	driver driver{driver_file, "MomoLul"};
+	const driver_device driver_device{R"(\\.\HelloDev)"};
 
 	/*
 	// IW5
