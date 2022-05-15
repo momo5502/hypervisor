@@ -11,8 +11,6 @@
 
 #include "resource.hpp"
 
-#include "launcher/launcher.hpp"
-
 #pragma comment(lib, "Shlwapi.lib")
 
 void patch_data(const driver_device& driver_device, const uint32_t pid, const uint64_t addr, const uint8_t* buffer,

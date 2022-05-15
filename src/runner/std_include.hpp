@@ -10,7 +10,4 @@
 #include <Shlwapi.h>
 #include <ShlObj.h>
 
-#include <MsHTML.h>
-#include <MsHtmHst.h>
-
 #pragma comment(lib, "Shlwapi.lib")
