@@ -1,7 +1,6 @@
 #include "std_include.hpp"
 #include "memory.hpp"
 #include "string.hpp"
-#include "process.hpp"
 
 namespace memory
 {
@@ -79,6 +78,23 @@ namespace memory
 		PHYSICAL_ADDRESS physical_address{};
 		physical_address.QuadPart = static_cast<LONGLONG>(address);
 		return MmGetVirtualForPhysical(physical_address);
+	}
+
+	_Must_inspect_result_
+	_IRQL_requires_max_(DISPATCH_LEVEL)
+
+	void* map_physical_memory(const uint64_t address, const size_t size)
+	{
+		PHYSICAL_ADDRESS physical_address{};
+		physical_address.QuadPart = static_cast<LONGLONG>(address);
+		return MmMapIoSpace(physical_address, size, MmNonCached);
+	}
+
+	_IRQL_requires_max_(DISPATCH_LEVEL)
+
+	void unmap_physical_memory(void* address, const size_t size)
+	{
+		MmUnmapIoSpace(address, size);
 	}
 
 	_Must_inspect_result_

@@ -74,6 +74,44 @@ namespace vmx
 
 			return candidate_memory_type;
 		}
+
+		void update_fake_page(ept_hook& hook)
+		{
+			if(!hook.mapped_virtual_address)
+			{
+				return;
+			}
+
+			uint8_t page_copy[PAGE_SIZE];
+			memcpy(page_copy, hook.mapped_virtual_address, PAGE_SIZE);
+
+			for(size_t i = 0; i < PAGE_SIZE; ++i)
+			{
+				if(hook.diff_page[i] != page_copy[i])
+				{
+					hook.diff_page[i] = page_copy[i];
+					hook.fake_page[i] = page_copy[i];
+				}
+			}
+		}
+	}
+
+	ept_hook::ept_hook(const uint64_t physical_base)
+		: physical_base_address(physical_base)
+		  , mapped_virtual_address(memory::map_physical_memory(physical_base_address, PAGE_SIZE))
+	{
+		if (!mapped_virtual_address)
+		{
+			throw std::runtime_error("Failed to map physical memory");
+		}
+	}
+
+	ept_hook::~ept_hook()
+	{
+		if (mapped_virtual_address)
+		{
+			memory::unmap_physical_memory(mapped_virtual_address, PAGE_SIZE);
+		}
 	}
 
 	ept::ept()
@@ -178,6 +216,7 @@ namespace vmx
 
 		if (!violation_qualification.ept_executable && violation_qualification.execute_access)
 		{
+			update_fake_page(*hook);
 			hook->target_page->flags = hook->execute_entry.flags;
 			guest_context.increment_rip = false;
 		}
@@ -335,9 +374,9 @@ namespace vmx
 		return split;
 	}
 
-	ept_hook* ept::allocate_ept_hook()
+	ept_hook* ept::allocate_ept_hook(const uint64_t physical_address)
 	{
-		auto* hook = memory::allocate_aligned_object<ept_hook>();
+		auto* hook = memory::allocate_aligned_object<ept_hook>(physical_address);
 		if (!hook)
 		{
 			throw std::runtime_error("Failed to allocate ept hook object");
@@ -400,7 +439,7 @@ namespace vmx
 			return hook;
 		}
 
-		hook = this->allocate_ept_hook();
+		hook = this->allocate_ept_hook(physical_base_address);
 
 		if (!hook)
 		{
@@ -411,6 +450,7 @@ namespace vmx
 
 		const auto* data_source = translation_hint ? &translation_hint->page[0] : virtual_target;
 		memcpy(&hook->fake_page[0], data_source, PAGE_SIZE);
+		memcpy(&hook->diff_page[0], data_source, PAGE_SIZE);
 		hook->physical_base_address = physical_base_address;
 
 		hook->target_page = this->get_pml1_entry(physical_address);

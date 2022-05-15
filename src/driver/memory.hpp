@@ -15,6 +15,13 @@ namespace memory
 
 	_Must_inspect_result_
 	_IRQL_requires_max_(DISPATCH_LEVEL)
+	void* map_physical_memory(const uint64_t address, const size_t size);
+
+	_IRQL_requires_max_(DISPATCH_LEVEL)
+	void unmap_physical_memory(void* address, const size_t size);
+
+	_Must_inspect_result_
+	_IRQL_requires_max_(DISPATCH_LEVEL)
 	void* allocate_non_paged_memory(size_t size);
 
 	_IRQL_requires_max_(DISPATCH_LEVEL)
