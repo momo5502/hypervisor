@@ -53,7 +53,7 @@ namespace vmx
 		DECLSPEC_PAGE_ALIGN vmcs vmx_on{};
 		DECLSPEC_PAGE_ALIGN vmcs vmcs{};
 
-		DECLSPEC_PAGE_ALIGN ept ept{};
+		DECLSPEC_PAGE_ALIGN ept* ept{};
 	};
 
 	struct gdt_entry

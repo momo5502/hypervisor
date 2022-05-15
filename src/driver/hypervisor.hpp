@@ -28,6 +28,7 @@ public:
 private:
 	uint32_t vm_state_count_{0};
 	vmx::state** vm_states_{nullptr};
+	vmx::ept* ept_{nullptr};
 
 	void enable_core(uint64_t system_directory_table_base);
 	bool try_enable_core(uint64_t system_directory_table_base);

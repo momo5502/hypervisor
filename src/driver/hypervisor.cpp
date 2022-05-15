@@ -84,7 +84,7 @@ namespace
 
 	uintptr_t read_vmx(const uint32_t vmcs_field_id)
 	{
-		size_t data{};
+		uintptr_t data{};
 		__vmx_vmread(vmcs_field_id, &data);
 		return data;
 	}
@@ -165,6 +165,21 @@ bool hypervisor::is_enabled() const
 bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length,
                                   vmx::ept_translation_hint* translation_hint)
 {
+	try
+	{
+		this->ept_->install_hook(destination, source, length, translation_hint);
+	}
+	catch (std::exception& e)
+	{
+		debug_log("Failed to install ept hook on core %d: %s\n", thread::get_processor_index(), e.what());
+		return false;
+	}
+	catch (...)
+	{
+		debug_log("Failed to install ept hook on core %d.\n", thread::get_processor_index());
+		return false;
+	}
+
 	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]
 	{
@@ -179,6 +194,8 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
 
 void hypervisor::disable_all_ept_hooks() const
 {
+	this->ept_->disable_all_hooks();
+
 	thread::dispatch_on_all_cores([&]
 	{
 		auto* vm_state = this->get_current_vm_state();
@@ -187,11 +204,9 @@ void hypervisor::disable_all_ept_hooks() const
 			return;
 		}
 
-		vm_state->ept.disable_all_hooks();
-
 		if (this->is_enabled())
 		{
-			vm_state->ept.invalidate();
+			vm_state->ept->invalidate();
 		}
 	});
 }
@@ -204,6 +219,8 @@ hypervisor* hypervisor::get_instance()
 void hypervisor::enable()
 {
 	const auto cr3 = __readcr3();
+
+	this->ept_->initialize();
 
 	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]
@@ -449,10 +466,10 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, const vmx::state& v
 		vmx_handle_vmx(guest_context);
 		break;
 	case VMX_EXIT_REASON_EPT_VIOLATION:
-		vm_state.ept.handle_violation(guest_context);
+		vm_state.ept->handle_violation(guest_context);
 		break;
 	case VMX_EXIT_REASON_EPT_MISCONFIGURATION:
-		vm_state.ept.handle_misconfiguration(guest_context);
+		vm_state.ept->handle_misconfiguration(guest_context);
 		break;
 	//case VMX_EXIT_REASON_EXECUTE_RDTSC:
 	//	break;
@@ -515,7 +532,7 @@ void setup_vmcs_for_cpu(vmx::state& vm_state)
 
 	if (launch_context->ept_controls.flags != 0)
 	{
-		const auto vmx_eptp = vm_state.ept.get_ept_pointer();
+		const auto vmx_eptp = vm_state.ept->get_ept_pointer();
 		__vmx_vmwrite(VMCS_CTRL_EPT_POINTER, vmx_eptp.flags);
 		__vmx_vmwrite(VMCS_CTRL_VIRTUAL_PROCESSOR_IDENTIFIER, 1);
 	}
@@ -655,7 +672,7 @@ void initialize_msrs(vmx::launch_context& launch_context)
 [[ noreturn ]] void launch_hypervisor(vmx::state& vm_state)
 {
 	initialize_msrs(vm_state.launch_context);
-	vm_state.ept.initialize();
+	//vm_state.ept->initialize();
 
 	enter_root_mode_on_cpu(vm_state);
 	setup_vmcs_for_cpu(vm_state);
@@ -708,6 +725,15 @@ void hypervisor::disable_core()
 
 void hypervisor::allocate_vm_states()
 {
+	if (!this->ept_)
+	{
+		this->ept_ = memory::allocate_aligned_object<vmx::ept>();
+		if (!this->ept_)
+		{
+			throw std::runtime_error("Failed to allocate ept object");
+		}
+	}
+
 	if (this->vm_states_)
 	{
 		throw std::runtime_error("VM states are still in use");
@@ -725,24 +751,30 @@ void hypervisor::allocate_vm_states()
 		{
 			throw std::runtime_error("Failed to allocate VM state entries");
 		}
+
+		this->vm_states_[i]->ept = this->ept_;
 	}
 }
 
 void hypervisor::free_vm_states()
 {
-	if (!this->vm_states_)
+	if (this->vm_states_)
 	{
-		return;
+		for (auto i = 0u; i < this->vm_state_count_; ++i)
+		{
+			memory::free_aligned_object(this->vm_states_[i]);
+		}
+
+		delete[] this->vm_states_;
+		this->vm_states_ = nullptr;
+		this->vm_state_count_ = 0;
 	}
 
-	for (auto i = 0u; i < this->vm_state_count_; ++i)
+	if (this->ept_)
 	{
-		memory::free_aligned_object(this->vm_states_[i]);
+		memory::free_aligned_object(this->ept_);
+		this->ept_ = nullptr;
 	}
-
-	delete[] this->vm_states_;
-	this->vm_states_ = nullptr;
-	this->vm_state_count_ = 0;
 }
 
 bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length,
@@ -774,11 +806,15 @@ void hypervisor::install_ept_hook_on_core(const void* destination, const void* s
 		throw std::runtime_error("No vm state available");
 	}
 
-	vm_state->ept.install_hook(destination, source, length, translation_hint);
+	(void)destination;
+	(void)source;
+	(void)length;
+	(void)translation_hint;
+	//vm_state->ept->install_hook(destination, source, length, translation_hint);
 
 	if (this->is_enabled())
 	{
-		vm_state->ept.invalidate();
+		vm_state->ept->invalidate();
 	}
 }
 
