@@ -148,7 +148,27 @@ namespace
 		auto watch_request_copy = watch_request;
 		watch_request_copy.watch_regions = buffer.get();
 
-		thread::kernel_thread t([watch_request_copy, hypervisor]
+		size_t page_count = 0;
+		for (size_t i = 0; i < watch_request_copy.watch_region_count; ++i)
+		{
+			const auto& watch_region = watch_request_copy.watch_regions[i];
+
+			auto start = static_cast<const uint8_t*>(watch_region.virtual_address);
+			auto end = start + watch_region.length;
+
+			start = static_cast<const uint8_t*>(PAGE_ALIGN(start));
+			end = static_cast<const uint8_t*>(PAGE_ALIGN(reinterpret_cast<uint64_t>(end) + (PAGE_SIZE - 1)));
+			page_count += (end - start) / PAGE_SIZE;
+		}
+
+		volatile long index = 0;
+		std::unique_ptr<uint64_t[]> page_buffer(new uint64_t[page_count]);
+		if (!page_buffer)
+		{
+			throw std::runtime_error("Failed to copy buffer");
+		}
+
+		thread::kernel_thread t([watch_request_copy, hypervisor, &index, &page_buffer]
 		{
 			debug_log("Looking up process: %d\n", watch_request_copy.process_id);
 
@@ -182,8 +202,10 @@ namespace
 					const auto physical_address = memory::get_physical_address(const_cast<uint8_t*>(current));
 					if (physical_address)
 					{
-						debug_log("Watching %p -> %llX\n", current, physical_address);
-						(void)hypervisor->install_ept_code_watch_point(physical_address);
+						debug_log("Resolved %p -> %llX\n", current, physical_address);
+						page_buffer.get()[index] = physical_address;
+						InterlockedIncrement(&index);
+						//(void)hypervisor->install_ept_code_watch_point(physical_address);
 					}
 					else
 					{
@@ -194,6 +216,10 @@ namespace
 		});
 
 		t.join();
+
+		debug_log("Installing watch points...\n");
+		(void)hypervisor->install_ept_code_watch_points(page_buffer.get(), index);
+		debug_log("Watch points installed\n");
 	}
 
 	void try_watch_regions(const PIO_STACK_LOCATION irp_sp)

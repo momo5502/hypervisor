@@ -102,6 +102,7 @@ namespace vmx
 				if (watch_point->target_page)
 				{
 					watch_point->target_page->read_access = 0;
+					watch_point->target_page->write_access = 0;
 					watch_point->target_page->execute_access = 1;
 				}
 
@@ -162,7 +163,7 @@ namespace vmx
 		{
 			auto* current_watch_point = watch_point;
 			watch_point = watch_point->next_watch_point;
-			memory::free_aligned_object(current_watch_point);
+			memory::free_non_paged_object(current_watch_point);
 		}
 	}
 
@@ -177,16 +178,6 @@ namespace vmx
 
 	void ept::record_access(const uint64_t rip)
 	{
-		const auto _ = utils::finally([&]
-		{
-			InterlockedExchange(&this->access_records_barrier, 0);
-		});
-
-		// Aaaahhh, fuck that xD
-		while (InterlockedExchange(&this->access_records_barrier, 1))
-		{
-		}
-
 		for (unsigned long long& access_record : this->access_records)
 		{
 			if (access_record == 0)
@@ -271,15 +262,21 @@ namespace vmx
 			{
 				watch_point->target_page->execute_access = 1;
 				watch_point->target_page->read_access = 0;
+				watch_point->target_page->write_access = 0;
 				guest_context.increment_rip = false;
 			}
-
-			if (violation_qualification.ept_executable && violation_qualification.read_access)
+			else if (violation_qualification.ept_executable && (violation_qualification.read_access ||
+				violation_qualification.
+				write_access))
 			{
 				watch_point->target_page->execute_access = 0;
 				watch_point->target_page->read_access = 1;
+				watch_point->target_page->write_access = 1;
 				guest_context.increment_rip = false;
-				this->record_access(guest_context.guest_rip);
+				if (violation_qualification.read_access)
+				{
+					this->record_access(guest_context.guest_rip);
+				}
 			}
 
 			return;
@@ -310,6 +307,7 @@ namespace vmx
 
 	void ept::handle_misconfiguration(guest_context& guest_context) const
 	{
+		// We can actually not recover from this, but this should not occur anyways
 		guest_context.increment_rip = false;
 		guest_context.exit_vm = true;
 	}
@@ -379,12 +377,14 @@ namespace vmx
 
 		this->split_large_page(physical_base_address);
 
+		watch_point->physical_base_address = physical_base_address;
 		watch_point->target_page = this->get_pml1_entry(physical_base_address);
 		if (!watch_point->target_page)
 		{
 			throw std::runtime_error("Failed to get PML1 entry for target address");
 		}
 
+		watch_point->target_page->write_access = 0;
 		watch_point->target_page->read_access = 0;
 	}
 
@@ -511,7 +511,7 @@ namespace vmx
 
 	ept_code_watch_point* ept::allocate_ept_code_watch_point()
 	{
-		auto* watch_point = memory::allocate_aligned_object<ept_code_watch_point>();
+		auto* watch_point = memory::allocate_non_paged_object<ept_code_watch_point>();
 		if (!watch_point)
 		{
 			throw std::runtime_error("Failed to allocate ept watch point object");

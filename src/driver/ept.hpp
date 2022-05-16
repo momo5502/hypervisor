@@ -97,7 +97,6 @@ namespace vmx
 		DECLSPEC_PAGE_ALIGN pml2 epde[EPT_PDPTE_ENTRY_COUNT][EPT_PDE_ENTRY_COUNT];
 
 		uint64_t access_records[1024];
-		volatile long access_records_barrier{0};
 
 		ept_split* ept_splits{nullptr};
 		ept_hook* ept_hooks{nullptr};
