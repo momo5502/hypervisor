@@ -185,10 +185,11 @@ std::vector<uint64_t> query_records(const driver_device& driver_device, const si
 	return result;
 }
 
-void report_records(const std::atomic_bool& flag, const driver_device& driver_device)
+void report_records(const std::atomic_bool& flag, const driver_device& driver_device, const uint32_t pid, const HMODULE target_module, const std::vector<std::pair<size_t, size_t>>& regions)
 {
 	std::set<uint64_t> access_addresses{};
 
+	int i = 0;
 	while (flag)
 	{
 		std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -200,6 +201,11 @@ void report_records(const std::atomic_bool& flag, const driver_device& driver_de
 			{
 				printf("%p\n", reinterpret_cast<void*>(new_record));
 			}
+		}
+
+		if((++i) % 5 == 0)
+		{
+			watch_regions(driver_device, pid, target_module, regions);
 		}
 	}
 }
@@ -268,7 +274,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	std::atomic_bool terminate{false};
 	std::thread t([&]()
 	{
-		report_records(terminate, driver_device);
+		report_records(terminate, driver_device, pid, target_module, regions);
 	});
 
 	_getch();

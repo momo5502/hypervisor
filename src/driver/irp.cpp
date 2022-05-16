@@ -182,7 +182,12 @@ namespace
 					const auto physical_address = memory::get_physical_address(const_cast<uint8_t*>(current));
 					if (physical_address)
 					{
-						hypervisor->get_ept().install_code_watch_point(physical_address);
+						debug_log("Watching %p -> %llX\n", current, physical_address);
+						(void)hypervisor->install_ept_code_watch_point(physical_address);
+					}
+					else
+					{
+						debug_log("Failed to resovle physical address for %p\n", current);
 					}
 				}
 			}

@@ -192,6 +192,31 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
 	return failures == 0;
 }
 
+bool hypervisor::install_ept_code_watch_point(const uint64_t physical_page) const
+{
+	try
+	{
+		this->ept_->install_code_watch_point(physical_page);
+	}
+	catch (std::exception& e)
+	{
+		debug_log("Failed to install ept watch point on core %d: %s\n", thread::get_processor_index(), e.what());
+		return false;
+	}
+	catch (...)
+	{
+		debug_log("Failed to install ept watch point on core %d.\n", thread::get_processor_index());
+		return false;
+	}
+
+	thread::dispatch_on_all_cores([&]
+	{
+		this->ept_->invalidate();
+	});
+
+	return true;
+}
+
 void hypervisor::disable_all_ept_hooks() const
 {
 	this->ept_->disable_all_hooks();

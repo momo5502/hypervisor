@@ -21,6 +21,9 @@ public:
 
 	bool install_ept_hook(const void* destination, const void* source, size_t length,
 	                      vmx::ept_translation_hint* translation_hint = nullptr);
+
+	bool install_ept_code_watch_point(uint64_t physical_page) const;
+
 	void disable_all_ept_hooks() const;
 
 	vmx::ept& get_ept() const;

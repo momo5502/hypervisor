@@ -94,6 +94,20 @@ namespace vmx
 				}
 			}
 		}
+
+		void reset_all_watch_point_pages(ept_code_watch_point* watch_point)
+		{
+			while (watch_point)
+			{
+				if (watch_point->target_page)
+				{
+					watch_point->target_page->read_access = 0;
+					watch_point->target_page->execute_access = 1;
+				}
+
+				watch_point = watch_point->next_watch_point;
+			}
+		}
 	}
 
 	ept_hook::ept_hook(const uint64_t physical_base)
@@ -251,6 +265,8 @@ namespace vmx
 		auto* watch_point = this->find_ept_code_watch_point(physical_base_address);
 		if (watch_point)
 		{
+			reset_all_watch_point_pages(this->ept_code_watch_points);
+
 			if (!violation_qualification.ept_executable && violation_qualification.execute_access)
 			{
 				watch_point->target_page->execute_access = 1;
@@ -368,6 +384,8 @@ namespace vmx
 		{
 			throw std::runtime_error("Failed to get PML1 entry for target address");
 		}
+
+		watch_point->target_page->read_access = 0;
 	}
 
 	ept_pointer ept::get_ept_pointer() const
