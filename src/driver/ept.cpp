@@ -178,7 +178,7 @@ namespace vmx
 
 	void ept::record_access(const uint64_t rip)
 	{
-		for (unsigned long long& access_record : this->access_records)
+		for (auto& access_record : this->access_records)
 		{
 			if (access_record == 0)
 			{

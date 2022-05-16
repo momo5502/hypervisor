@@ -185,12 +185,13 @@ std::vector<uint64_t> query_records(const driver_device& driver_device, const si
 	return result;
 }
 
-void report_records(const std::atomic_bool& flag, const driver_device& driver_device, const uint32_t pid, const HMODULE target_module, const std::vector<std::pair<size_t, size_t>>& regions)
+void report_records(const std::atomic_bool& flag, const driver_device& driver_device, const uint32_t pid,
+                    const HMODULE target_module, const std::vector<std::pair<size_t, size_t>>& regions)
 {
 	std::set<uint64_t> access_addresses{};
 
 	int i = 0;
-	while (flag)
+	while (!flag)
 	{
 		std::this_thread::sleep_for(std::chrono::seconds(1));
 		const auto new_records = query_records(driver_device, access_addresses.size());
@@ -203,7 +204,7 @@ void report_records(const std::atomic_bool& flag, const driver_device& driver_de
 			}
 		}
 
-		if((++i) % 5 == 0)
+		if ((++i) % 5 == 0)
 		{
 			watch_regions(driver_device, pid, target_module, regions);
 		}
@@ -212,75 +213,83 @@ void report_records(const std::atomic_bool& flag, const driver_device& driver_de
 
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
-	const auto driver_file = extract_driver();
-
-	driver driver{driver_file, "MomoLul"};
-	const driver_device driver_device{R"(\\.\HelloDev)"};
-
-	const auto pid = get_process_id();
-
-	printf("Opening process...\n");
-	auto proc = process::open(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
-	if (!proc)
 	{
-		printf("Failed to open process...\n");
-		return;
-	}
+		const auto driver_file = extract_driver();
 
-	printf("Reading modules...\n");
-	const auto modules = process::get_modules(proc);
-	printf("Found %zu modules\n", modules.size());
+		driver driver{driver_file, "MomoLul"};
+		const driver_device driver_device{R"(\\.\HelloDev)"};
 
-	std::vector<std::string> module_files{};
-	module_files.reserve(modules.size());
+		const auto pid = get_process_id();
 
-	int i = 0;
-	for (const auto& module : modules)
-	{
-		auto name = process::get_module_filename(proc, module);
-		printf("(%i)\t%p: %s\n", i++, static_cast<void*>(module), name.data());
-		module_files.emplace_back(std::move(name));
-	}
+		printf("Opening process...\n");
+		auto proc = process::open(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
+		if (!proc)
+		{
+			printf("Failed to open process...\n");
+			return;
+		}
 
-	// We don't need this anymore 
-	proc = {};
+		printf("Reading modules...\n");
+		const auto modules = process::get_modules(proc);
+		printf("Found %zu modules:\n", modules.size());
 
-	std::string module_str{};
-	printf("\nPlease enter the module number: ");
-	std::getline(std::cin, module_str);
+		std::vector<std::string> module_files{};
+		module_files.reserve(modules.size());
 
-	const auto module_num = atoi(module_str.data());
+		int i = 0;
+		for (const auto& module : modules)
+		{
+			auto name = process::get_module_filename(proc, module);
+			printf("(%i)\t%p: %s\n", i++, static_cast<void*>(module), name.data());
+			module_files.emplace_back(std::move(name));
+		}
 
-	if (module_num < 0 || static_cast<size_t>(module_num) >= modules.size())
-	{
-		printf("Invalid module num\n");
+		// We don't need this anymore 
+		proc = {};
+
+		std::string module_str{};
+		printf("\nPlease enter the module number: ");
+		std::getline(std::cin, module_str);
+
+		const auto module_num = atoi(module_str.data());
+
+		if (module_num < 0 || static_cast<size_t>(module_num) >= modules.size())
+		{
+			printf("Invalid module num\n");
+			_getch();
+			return;
+		}
+
+		const auto target_module = modules[module_num];
+		const auto module_base = reinterpret_cast<uint8_t*>(target_module);
+		const auto& file = module_files[module_num];
+		printf("Analyzing %s...\n", file.data());
+		const auto regions = find_executable_regions(file);
+
+		printf("Executable regions:\n");
+		for (const auto& region : regions)
+		{
+			printf("%p - %zu\n", module_base + region.first, region.second);
+		}
+
+		watch_regions(driver_device, pid, target_module, regions);
+
+		std::atomic_bool terminate{false};
+		std::thread t([&]()
+		{
+			printf("\nWatching access:\n");
+			report_records(terminate, driver_device, pid, target_module, regions);
+		});
+
+
 		_getch();
-		return;
+
+		terminate = true;
+		t.join();
 	}
 
-	const auto target_module = modules[module_num];
-	const auto module_base = reinterpret_cast<uint8_t*>(target_module);
-	const auto& file = module_files[module_num];
-	printf("Analyzing %s...\n", file.data());
-	const auto regions = find_executable_regions(file);
-
-	for (const auto& region : regions)
-	{
-		printf("%p - %zu\n", module_base + region.first, region.second);
-	}
-
-	watch_regions(driver_device, pid, target_module, regions);
-
-	std::atomic_bool terminate{false};
-	std::thread t([&]()
-	{
-		report_records(terminate, driver_device, pid, target_module, regions);
-	});
-
+	printf("\nWatching stopped.\n");
 	_getch();
-
-	terminate = true;
-	t.join();
 
 	return;
 
@@ -315,13 +324,13 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	patch_data(driver_device, pid, 0x52512C, data3, sizeof(data3));
 	*/
 
-	printf("Press any key to disable all hooks!\n");
+	/*printf("Press any key to disable all hooks!\n");
 	(void)_getch();
 
 	remove_hooks(driver_device);
 
 	printf("Press any key to exit!\n");
-	(void)_getch();
+	(void)_getch();*/
 }
 
 int main(const int argc, char* argv[])
