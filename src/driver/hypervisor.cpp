@@ -211,6 +211,11 @@ void hypervisor::disable_all_ept_hooks() const
 	});
 }
 
+vmx::ept& hypervisor::get_ept() const
+{
+	return *this->ept_;
+}
+
 hypervisor* hypervisor::get_instance()
 {
 	return instance;

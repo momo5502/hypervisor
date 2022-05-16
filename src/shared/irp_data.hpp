@@ -24,6 +24,6 @@ struct watch_region
 struct watch_request
 {
 	uint32_t process_id{};
-	const void* watch_region{};
+	const watch_region* watch_regions{};
 	uint64_t watch_region_count{};
 };

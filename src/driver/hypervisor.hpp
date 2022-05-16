@@ -23,6 +23,8 @@ public:
 	                      vmx::ept_translation_hint* translation_hint = nullptr);
 	void disable_all_ept_hooks() const;
 
+	vmx::ept& get_ept() const;
+
 	static hypervisor* get_instance();
 
 private:

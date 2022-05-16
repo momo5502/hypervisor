@@ -25,20 +25,34 @@ bool driver_device::send(const DWORD ioctl_code, const data& input) const
 
 bool driver_device::send(const DWORD ioctl_code, const data& input, data& output) const
 {
+	size_t out_len = output.size();
+	if (this->send(ioctl_code, input.data(), input.size(), output.data(), &out_len))
+	{
+		output.resize(out_len);
+		return true;
+	}
+
+	return false;
+}
+
+bool driver_device::send(const DWORD ioctl_code, const void* input, const size_t input_length, void* output,
+                         size_t* output_length) const
+{
 	DWORD size_returned = 0;
 	const auto success = DeviceIoControl(this->device_,
 	                                     ioctl_code,
-	                                     const_cast<uint8_t*>(input.data()),
-	                                     static_cast<DWORD>(input.size()),
-	                                     output.data(),
-	                                     static_cast<DWORD>(output.size()),
+	                                     const_cast<void*>(input),
+	                                     static_cast<DWORD>(input_length),
+	                                     output,
+	                                     static_cast<DWORD>(*output_length),
 	                                     &size_returned,
 	                                     nullptr
 	) != FALSE;
 
-	if (success && size_returned < output.size())
+	*output_length = 0;
+	if (success)
 	{
-		output.resize(size_returned);
+		*output_length = size_returned;
 	}
 
 	return success;

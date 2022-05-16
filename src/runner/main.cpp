@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <conio.h>
 #include <fstream>
-
+#include <set>
 
 #include "driver.hpp"
 #include "driver_device.hpp"
@@ -107,16 +107,114 @@ std::vector<std::pair<size_t, size_t>> find_executable_regions(const std::string
 	return regions;
 }
 
-void unsafe_main(const int /*argc*/, char* /*argv*/[])
+uint32_t get_process_id()
 {
 	std::string pid_str{};
 	printf("Please enter the pid: ");
 	std::getline(std::cin, pid_str);
 
-	const auto pid = atoi(pid_str.data());
+	return atoi(pid_str.data());
+}
+
+void watch_regions(const driver_device& driver_device, const uint32_t pid, const HMODULE module,
+                   const std::vector<std::pair<size_t, size_t>>& regions)
+{
+	std::vector<watch_region> watch_regions{};
+	watch_regions.reserve(regions.size());
+
+	for (const auto& region : regions)
+	{
+		watch_region watch_region{};
+		watch_region.virtual_address = reinterpret_cast<uint8_t*>(module) + region.first;
+		watch_region.length = region.second;
+		watch_regions.push_back(watch_region);
+	}
+
+	watch_request request{};
+	request.process_id = pid;
+	request.watch_regions = watch_regions.data();
+	request.watch_region_count = watch_regions.size();
+
+	driver_device::data out{};
+	size_t out_len = 0;
+	driver_device.send(WATCH_DRV_IOCTL, &request, sizeof(request), out.data(), &out_len);
+}
+
+std::vector<uint64_t> query_records(const driver_device& driver_device, const size_t current_size = 0)
+{
+	std::vector<uint64_t> result{};
+	result.resize(std::max(size_t(1024), current_size * 2));
+
+	while (true)
+	{
+		char in[1];
+		constexpr auto element_len = sizeof(decltype(result)::value_type);
+		const size_t initial_len = result.size() * element_len;
+		size_t out_len = initial_len;
+		if (!driver_device.send(GET_RECORDS_DRV_IOCTL, in, 0, result.data(), &out_len))
+		{
+			return {};
+		}
+
+		//if (out_len <= initial_len)
+		if (result.back() == 0)
+		{
+			//result.resize(out_len / element_len);
+			break;
+		}
+
+		//result.resize((out_len / element_len) + 10);
+		const auto new_size = result.size() * 2;
+
+		result = {};
+		result.resize(result.size() * 2);
+	}
+
+	// Shrink
+	size_t i;
+	for (i = result.size(); i > 0; --i)
+	{
+		if (result[i - 1] != 0)
+		{
+			break;
+		}
+	}
+
+	result.resize(i);
+
+	return result;
+}
+
+void report_records(const std::atomic_bool& flag, const driver_device& driver_device)
+{
+	std::set<uint64_t> access_addresses{};
+
+	while (flag)
+	{
+		std::this_thread::sleep_for(std::chrono::seconds(1));
+		const auto new_records = query_records(driver_device, access_addresses.size());
+
+		for (const auto& new_record : new_records)
+		{
+			if (access_addresses.emplace(new_record).second)
+			{
+				printf("%p\n", reinterpret_cast<void*>(new_record));
+			}
+		}
+	}
+}
+
+void unsafe_main(const int /*argc*/, char* /*argv*/[])
+{
+	const auto driver_file = extract_driver();
+
+	driver driver{driver_file, "MomoLul"};
+	const driver_device driver_device{R"(\\.\HelloDev)"};
+
+	const auto pid = get_process_id();
 
 	printf("Opening process...\n");
-	const auto proc = process::open(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
+	auto proc = process::open(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
 	if (!proc)
 	{
 		printf("Failed to open process...\n");
@@ -138,6 +236,9 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 		module_files.emplace_back(std::move(name));
 	}
 
+	// We don't need this anymore 
+	proc = {};
+
 	std::string module_str{};
 	printf("\nPlease enter the module number: ");
 	std::getline(std::cin, module_str);
@@ -151,7 +252,8 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 		return;
 	}
 
-	const auto module_base = reinterpret_cast<uint8_t*>(modules[module_num]);
+	const auto target_module = modules[module_num];
+	const auto module_base = reinterpret_cast<uint8_t*>(target_module);
 	const auto& file = module_files[module_num];
 	printf("Analyzing %s...\n", file.data());
 	const auto regions = find_executable_regions(file);
@@ -161,13 +263,20 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 		printf("%p - %zu\n", module_base + region.first, region.second);
 	}
 
+	watch_regions(driver_device, pid, target_module, regions);
+
+	std::atomic_bool terminate{false};
+	std::thread t([&]()
+	{
+		report_records(terminate, driver_device);
+	});
+
 	_getch();
+
+	terminate = true;
+	t.join();
+
 	return;
-
-	const auto driver_file = extract_driver();
-
-	driver driver{driver_file, "MomoLul"};
-	const driver_device driver_device{R"(\\.\HelloDev)"};
 
 	/*
 	// IW5

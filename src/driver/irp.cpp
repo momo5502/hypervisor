@@ -114,6 +114,9 @@ namespace
 
 	void try_apply_hook(const PIO_STACK_LOCATION irp_sp)
 	{
+		memory::assert_readability(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer,
+		                           irp_sp->Parameters.DeviceIoControl.InputBufferLength);
+
 		if (irp_sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(hook_request))
 		{
 			throw std::runtime_error("Invalid hook request");
@@ -126,10 +129,103 @@ namespace
 		apply_hook(request);
 	}
 
+	void watch_regions(const watch_request& watch_request)
+	{
+		auto* hypervisor = hypervisor::get_instance();
+		if (!hypervisor)
+		{
+			throw std::runtime_error("Hypervisor not installed");
+		}
+
+		std::unique_ptr<watch_region[]> buffer(new watch_region[watch_request.watch_region_count]);
+		if (!buffer)
+		{
+			throw std::runtime_error("Failed to copy buffer");
+		}
+
+		memcpy(buffer.get(), watch_request.watch_regions, watch_request.watch_region_count * sizeof(watch_region));
+
+		auto watch_request_copy = watch_request;
+		watch_request_copy.watch_regions = buffer.get();
+
+		thread::kernel_thread t([watch_request_copy, hypervisor]
+		{
+			debug_log("Looking up process: %d\n", watch_request_copy.process_id);
+
+			const auto process_handle = process::find_process_by_id(watch_request_copy.process_id);
+			if (!process_handle || !process_handle.is_alive())
+			{
+				debug_log("Bad process\n");
+				return;
+			}
+
+			const auto name = process_handle.get_image_filename();
+			if (name)
+			{
+				debug_log("Attaching to %s\n", name);
+			}
+
+			process::scoped_process_attacher attacher{process_handle};
+
+			for (size_t i = 0; i < watch_request_copy.watch_region_count; ++i)
+			{
+				const auto& watch_region = watch_request_copy.watch_regions[i];
+
+				auto start = static_cast<const uint8_t*>(watch_region.virtual_address);
+				auto end = start + watch_region.length;
+
+				start = static_cast<const uint8_t*>(PAGE_ALIGN(start));
+				end = static_cast<const uint8_t*>(PAGE_ALIGN(reinterpret_cast<uint64_t>(end) + (PAGE_SIZE - 1)));
+
+				for (auto current = start; current < end; current += PAGE_SIZE)
+				{
+					const auto physical_address = memory::get_physical_address(const_cast<uint8_t*>(current));
+					if (physical_address)
+					{
+						hypervisor->get_ept().install_code_watch_point(physical_address);
+					}
+				}
+			}
+		});
+
+		t.join();
+	}
+
+	void try_watch_regions(const PIO_STACK_LOCATION irp_sp)
+	{
+		memory::assert_readability(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer,
+		                           irp_sp->Parameters.DeviceIoControl.InputBufferLength);
+
+		if (irp_sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(watch_request))
+		{
+			throw std::runtime_error("Invalid watch request");
+		}
+
+		const auto& request = *static_cast<watch_request*>(irp_sp->Parameters.DeviceIoControl.Type3InputBuffer);
+		memory::assert_readability(request.watch_regions, request.watch_region_count * sizeof(watch_region));
+
+		watch_regions(request);
+	}
+
+	void get_records(const PIRP irp, const PIO_STACK_LOCATION irp_sp)
+	{
+		auto* hypervisor = hypervisor::get_instance();
+		if (!hypervisor)
+		{
+			throw std::runtime_error("Hypervisor not installed");
+		}
+
+		size_t count{};
+		const auto records = hypervisor->get_ept().get_access_records(&count);
+
+		memset(irp->UserBuffer, 0, irp_sp->Parameters.DeviceIoControl.OutputBufferLength);
+		memcpy(irp->UserBuffer, records, min(irp_sp->Parameters.DeviceIoControl.OutputBufferLength, count * 8));
+	}
+
 	void handle_irp(const PIRP irp)
 	{
 		irp->IoStatus.Information = 0;
-		irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+		irp->IoStatus.Status = STATUS_SUCCESS;
 
 		const auto irp_sp = IoGetCurrentIrpStackLocation(irp);
 
@@ -144,6 +240,12 @@ namespace
 				break;
 			case UNHOOK_DRV_IOCTL:
 				unhook();
+				break;
+			case WATCH_DRV_IOCTL:
+				try_watch_regions(irp_sp);
+				break;
+			case GET_RECORDS_DRV_IOCTL:
+				get_records(irp, irp_sp);
 				break;
 			default:
 				debug_log("Invalid IOCTL Code: 0x%X\n", ioctr_code);
