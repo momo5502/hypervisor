@@ -101,8 +101,8 @@ namespace vmx
 			{
 				if (watch_point->target_page)
 				{
-					watch_point->target_page->read_access = 0;
 					watch_point->target_page->write_access = 0;
+					watch_point->target_page->read_access = 0;
 					watch_point->target_page->execute_access = 1;
 				}
 
@@ -261,8 +261,8 @@ namespace vmx
 			if (!violation_qualification.ept_executable && violation_qualification.execute_access)
 			{
 				watch_point->target_page->execute_access = 1;
-				watch_point->target_page->read_access = 0;
 				watch_point->target_page->write_access = 0;
+				watch_point->target_page->read_access = 0;
 				guest_context.increment_rip = false;
 			}
 			else if (violation_qualification.ept_executable && (violation_qualification.read_access ||
