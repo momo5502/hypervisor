@@ -86,6 +86,7 @@ extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT driver_object, PUNICODE_STR
 {
 	try
 	{
+		debug_log("Starting driver...");
 		driver_object->DriverUnload = unload;
 		global_driver_instance = new global_driver(driver_object);
 	}

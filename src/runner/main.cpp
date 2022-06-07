@@ -333,7 +333,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	(void)_getch();*/
 }
 
-int main(const int argc, char* argv[])
+int _main(const int argc, char* argv[])
 {
 	try
 	{
@@ -354,7 +354,7 @@ int main(const int argc, char* argv[])
 	}
 }
 
-int __stdcall WinMain(HINSTANCE, HINSTANCE, char*, int)
+int __stdcall _WinMain(HINSTANCE, HINSTANCE, char*, int)
 {
 	AllocConsole();
 	AttachConsole(GetCurrentProcessId());
@@ -364,5 +364,19 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, char*, int)
 	freopen_s(&fp, "conout$", "w", stdout);
 	freopen_s(&fp, "conout$", "w", stderr);
 
-	return main(__argc, __argv);
+	return _main(__argc, __argv);
+}
+
+const driver_device& get_driver_device()
+{
+	static const auto driver_file = extract_driver();
+
+	static driver driver{driver_file, "MomoLul"};
+	static const driver_device driver_device{R"(\\.\HelloDev)"};
+	return driver_device;
+}
+
+extern "C" __declspec(dllexport) void hyperhook_patch_data(const uint32_t pid, const uint64_t address, const void* data, const size_t length)
+{
+	patch_data(get_driver_device(), pid, address, static_cast<const uint8_t*>(data), length);
 }
