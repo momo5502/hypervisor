@@ -51,7 +51,11 @@ void remove_hooks(const driver_device& driver_device)
 
 std::vector<uint8_t> load_resource(const int id)
 {
-	auto* const res = FindResource(GetModuleHandleA(nullptr), MAKEINTRESOURCE(id), RT_RCDATA);
+	HMODULE modhandle = nullptr;
+	GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+	                   reinterpret_cast<LPCSTR>(&load_resource), &modhandle);
+
+	auto* const res = FindResource(modhandle, MAKEINTRESOURCE(id), RT_RCDATA);
 	if (!res) return {};
 
 	auto* const handle = LoadResource(nullptr, res);
@@ -376,7 +380,8 @@ const driver_device& get_driver_device()
 	return driver_device;
 }
 
-extern "C" __declspec(dllexport) void hyperhook_patch_data(const uint32_t pid, const uint64_t address, const void* data, const size_t length)
+extern "C" __declspec(dllexport) void hyperhook_patch_data(const uint32_t pid, const uint64_t address, const void* data,
+                                                           const size_t length)
 {
 	patch_data(get_driver_device(), pid, address, static_cast<const uint8_t*>(data), length);
 }
