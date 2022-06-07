@@ -58,11 +58,11 @@ std::vector<uint8_t> load_resource(const int id)
 	auto* const res = FindResource(modhandle, MAKEINTRESOURCE(id), RT_RCDATA);
 	if (!res) return {};
 
-	auto* const handle = LoadResource(nullptr, res);
+	auto* const handle = LoadResource(modhandle, res);
 	if (!handle) return {};
 
 	const auto* data_ptr = static_cast<uint8_t*>(LockResource(handle));
-	const auto data_size = SizeofResource(nullptr, res);
+	const auto data_size = SizeofResource(modhandle, res);
 
 	std::vector<uint8_t> data{};
 	data.assign(data_ptr, data_ptr + data_size);
