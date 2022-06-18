@@ -164,7 +164,7 @@ std::vector<uint64_t> query_records(const driver_device& driver_device, const si
 		}
 
 		//result.resize((out_len / element_len) + 10);
-		const auto new_size = result.size() * 2;
+		//const auto new_size = result.size() * 2;
 
 		result = {};
 		result.resize(result.size() * 2);
