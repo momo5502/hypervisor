@@ -192,6 +192,50 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
 	return failures == 0;
 }
 
+bool hypervisor::install_ept_code_watch_point(const uint64_t physical_page, bool invalidate) const
+{
+	try
+	{
+		this->ept_->install_code_watch_point(physical_page);
+	}
+	catch (std::exception& e)
+	{
+		debug_log("Failed to install ept watch point on core %d: %s\n", thread::get_processor_index(), e.what());
+		return false;
+	}
+	catch (...)
+	{
+		debug_log("Failed to install ept watch point on core %d.\n", thread::get_processor_index());
+		return false;
+	}
+
+	if (invalidate)
+	{
+		thread::dispatch_on_all_cores([&]
+		{
+			this->ept_->invalidate();
+		});
+	}
+
+	return true;
+}
+
+bool hypervisor::install_ept_code_watch_points(const uint64_t* physical_pages, const size_t count) const
+{
+	bool success = true;
+	for (size_t i = 0; i < count; ++i)
+	{
+		success &= this->install_ept_code_watch_point(physical_pages[i], false);
+	}
+
+	thread::dispatch_on_all_cores([&]
+	{
+		this->ept_->invalidate();
+	});
+
+	return success;
+}
+
 void hypervisor::disable_all_ept_hooks() const
 {
 	this->ept_->disable_all_hooks();
@@ -209,6 +253,11 @@ void hypervisor::disable_all_ept_hooks() const
 			vm_state->ept->invalidate();
 		}
 	});
+}
+
+vmx::ept& hypervisor::get_ept() const
+{
+	return *this->ept_;
 }
 
 hypervisor* hypervisor::get_instance()
@@ -504,14 +553,13 @@ extern "C" [[ noreturn ]] void vm_exit_handler(CONTEXT* context)
 	if (guest_context.exit_vm)
 	{
 		context->Rcx = 0x43434343;
-		restore_descriptor_tables(vm_state->launch_context);
-
-		__writecr3(read_vmx(VMCS_GUEST_CR3));
-
 		context->Rsp = guest_context.guest_rsp;
 		context->Rip = guest_context.guest_rip;
 		context->EFlags = static_cast<uint32_t>(guest_context.guest_e_flags);
 
+		restore_descriptor_tables(vm_state->launch_context);
+
+		__writecr3(read_vmx(VMCS_GUEST_CR3));
 		__vmx_off();
 	}
 	else

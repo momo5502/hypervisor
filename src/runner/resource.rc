@@ -85,7 +85,6 @@ END
 
 102           ICON   "resources/icon.ico"
 DRIVER_BINARY RCDATA DRIVER_FILE
-MAIN_MENU     RCDATA "resources/main.html"
 
 
 

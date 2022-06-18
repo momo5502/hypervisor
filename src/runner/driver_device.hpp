@@ -16,6 +16,7 @@ public:
 	using data = std::vector<uint8_t>;
 	bool send(DWORD ioctl_code, const data& input) const;
 	bool send(DWORD ioctl_code, const data& input, data& output) const;
+	bool send(DWORD ioctl_code, const void* input, size_t input_length, void* output, size_t* output_length) const;
 
 private:
 	native_handle device_{};

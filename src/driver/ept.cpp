@@ -77,7 +77,7 @@ namespace vmx
 
 		void update_fake_page(ept_hook& hook)
 		{
-			if(!hook.mapped_virtual_address)
+			if (!hook.mapped_virtual_address)
 			{
 				return;
 			}
@@ -85,13 +85,28 @@ namespace vmx
 			uint8_t page_copy[PAGE_SIZE];
 			memcpy(page_copy, hook.mapped_virtual_address, PAGE_SIZE);
 
-			for(size_t i = 0; i < PAGE_SIZE; ++i)
+			for (size_t i = 0; i < PAGE_SIZE; ++i)
 			{
-				if(hook.diff_page[i] != page_copy[i])
+				if (hook.diff_page[i] != page_copy[i])
 				{
 					hook.diff_page[i] = page_copy[i];
 					hook.fake_page[i] = page_copy[i];
 				}
+			}
+		}
+
+		void reset_all_watch_point_pages(ept_code_watch_point* watch_point)
+		{
+			while (watch_point)
+			{
+				if (watch_point->target_page)
+				{
+					watch_point->target_page->write_access = 0;
+					watch_point->target_page->read_access = 0;
+					watch_point->target_page->execute_access = 1;
+				}
+
+				watch_point = watch_point->next_watch_point;
 			}
 		}
 	}
@@ -121,6 +136,8 @@ namespace vmx
 		memset(this->epml4, 0, sizeof(this->epml4));
 		memset(this->epdpt, 0, sizeof(this->epdpt));
 		memset(this->epde, 0, sizeof(this->epde));
+
+		memset(this->access_records, 0, sizeof(this->access_records));
 	}
 
 	ept::~ept()
@@ -140,6 +157,14 @@ namespace vmx
 			hook = hook->next_hook;
 			memory::free_aligned_object(current_hook);
 		}
+
+		auto* watch_point = this->ept_code_watch_points;
+		while (watch_point)
+		{
+			auto* current_watch_point = watch_point;
+			watch_point = watch_point->next_watch_point;
+			memory::free_non_paged_object(current_watch_point);
+		}
 	}
 
 	void ept::install_page_hook(void* destination, const void* source, const size_t length,
@@ -149,6 +174,23 @@ namespace vmx
 
 		const auto page_offset = ADDRMASK_EPT_PML1_OFFSET(reinterpret_cast<uint64_t>(destination));
 		memcpy(hook->fake_page + page_offset, source, length);
+	}
+
+	void ept::record_access(const uint64_t rip)
+	{
+		for (auto& access_record : this->access_records)
+		{
+			if (access_record == 0)
+			{
+				access_record = rip;
+				return;
+			}
+
+			if (access_record == rip)
+			{
+				return;
+			}
+		}
 	}
 
 	void ept::install_hook(const void* destination, const void* source, const size_t length,
@@ -197,7 +239,7 @@ namespace vmx
 		}
 	}
 
-	void ept::handle_violation(guest_context& guest_context) const
+	void ept::handle_violation(guest_context& guest_context)
 	{
 		vmx_exit_qualification_ept_violation violation_qualification{};
 		violation_qualification.flags = guest_context.exit_qualification;
@@ -208,6 +250,40 @@ namespace vmx
 		}
 
 		const auto physical_base_address = reinterpret_cast<uint64_t>(PAGE_ALIGN(guest_context.guest_physical_address));
+
+		// watch-point stuff
+
+		auto* watch_point = this->find_ept_code_watch_point(physical_base_address);
+		if (watch_point)
+		{
+			reset_all_watch_point_pages(this->ept_code_watch_points);
+
+			if (!violation_qualification.ept_executable && violation_qualification.execute_access)
+			{
+				watch_point->target_page->execute_access = 1;
+				watch_point->target_page->write_access = 0;
+				watch_point->target_page->read_access = 0;
+				guest_context.increment_rip = false;
+			}
+			else if (violation_qualification.ept_executable && (violation_qualification.read_access ||
+				violation_qualification.
+				write_access))
+			{
+				watch_point->target_page->execute_access = 0;
+				watch_point->target_page->read_access = 1;
+				watch_point->target_page->write_access = 1;
+				guest_context.increment_rip = false;
+				if (violation_qualification.read_access)
+				{
+					this->record_access(guest_context.guest_rip);
+				}
+			}
+
+			return;
+		}
+
+		// ept-hooking stuff
+
 		auto* hook = this->find_ept_hook(physical_base_address);
 		if (!hook)
 		{
@@ -231,6 +307,7 @@ namespace vmx
 
 	void ept::handle_misconfiguration(guest_context& guest_context) const
 	{
+		// We can actually not recover from this, but this should not occur anyways
 		guest_context.increment_rip = false;
 		guest_context.exit_vm = true;
 	}
@@ -281,6 +358,34 @@ namespace vmx
 					mtrr_data, this->epde[i][j].page_frame_number * 2_mb, MEMORY_TYPE_WRITE_BACK);
 			}
 		}
+	}
+
+	void ept::install_code_watch_point(const uint64_t physical_page)
+	{
+		const auto physical_base_address = reinterpret_cast<uint64_t>(PAGE_ALIGN(physical_page));
+
+		if (this->find_ept_code_watch_point(physical_base_address))
+		{
+			return;
+		}
+
+		auto* watch_point = this->allocate_ept_code_watch_point();
+		if (!watch_point)
+		{
+			throw std::runtime_error("Failed to allocate watch point");
+		}
+
+		this->split_large_page(physical_base_address);
+
+		watch_point->physical_base_address = physical_base_address;
+		watch_point->target_page = this->get_pml1_entry(physical_base_address);
+		if (!watch_point->target_page)
+		{
+			throw std::runtime_error("Failed to get PML1 entry for target address");
+		}
+
+		watch_point->target_page->write_access = 0;
+		watch_point->target_page->read_access = 0;
 	}
 
 	ept_pointer ept::get_ept_pointer() const
@@ -399,6 +504,36 @@ namespace vmx
 			}
 
 			hook = hook->next_hook;
+		}
+
+		return nullptr;
+	}
+
+	ept_code_watch_point* ept::allocate_ept_code_watch_point()
+	{
+		auto* watch_point = memory::allocate_non_paged_object<ept_code_watch_point>();
+		if (!watch_point)
+		{
+			throw std::runtime_error("Failed to allocate ept watch point object");
+		}
+
+		watch_point->next_watch_point = this->ept_code_watch_points;
+		this->ept_code_watch_points = watch_point;
+
+		return watch_point;
+	}
+
+	ept_code_watch_point* ept::find_ept_code_watch_point(const uint64_t physical_address) const
+	{
+		auto* watch_point = this->ept_code_watch_points;
+		while (watch_point)
+		{
+			if (watch_point->physical_base_address == physical_address)
+			{
+				return watch_point;
+			}
+
+			watch_point = watch_point->next_watch_point;
 		}
 
 		return nullptr;
@@ -574,5 +709,18 @@ namespace vmx
 			hint = hint->next_hint;
 			memory::free_non_paged_object(current_hint);
 		}
+	}
+
+	uint64_t* ept::get_access_records(size_t* count)
+	{
+		size_t i = 0;
+		for (const auto& record : this->access_records)
+		{
+			if (record == 0) break;
+			++i;
+		}
+
+		*count = i;
+		return this->access_records;
 	}
 }
