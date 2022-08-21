@@ -1,7 +1,7 @@
 # Hypervisor
 
-Hypervisor experiments.  
-Nothing serious. Yet.
+Experimental VT-X type 2 hypervisor with EPT hooking/analysis support.
+Basically just a tool I use for reverse engineering and stuff. Nothing too serious.
 
 ## Credits
 
