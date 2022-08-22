@@ -102,7 +102,7 @@ namespace memory
 
 	void* allocate_non_paged_memory(const size_t size)
 	{
-		void* memory = ExAllocatePoolWithTag(NonPagedPool, size, 'MOMO');
+		void* memory = ExAllocatePool2(NonPagedPool, size, 'MOMO');
 		if (memory)
 		{
 			RtlSecureZeroMemory(memory, size);
