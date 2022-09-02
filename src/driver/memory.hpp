@@ -27,10 +27,10 @@ namespace memory
 	_IRQL_requires_max_(DISPATCH_LEVEL)
 	void free_non_paged_memory(void* memory);
 
-	bool prope_for_read(const void* address, size_t length, uint64_t alignment = 1);
+	bool probe_for_read(const void* address, size_t length, uint64_t alignment = 1);
 	void assert_readability(const void* address, size_t length, uint64_t alignment = 1);
 
-	bool prope_for_write(const void* address, size_t length, uint64_t alignment = 1);
+	bool probe_for_write(const void* address, size_t length, uint64_t alignment = 1);
 	void assert_writability(const void* address, size_t length, uint64_t alignment = 1);
 
 	template <typename T, typename... Args>

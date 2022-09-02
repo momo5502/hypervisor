@@ -124,7 +124,7 @@ namespace memory
 		}
 	}
 
-	bool prope_for_read(const void* address, const size_t length, const uint64_t alignment)
+	bool probe_for_read(const void* address, const size_t length, const uint64_t alignment)
 	{
 		__try
 		{
@@ -139,13 +139,13 @@ namespace memory
 
 	void assert_readability(const void* address, const size_t length, const uint64_t alignment)
 	{
-		if (!prope_for_read(address, length, alignment))
+		if (!probe_for_read(address, length, alignment))
 		{
 			throw std::runtime_error("Access violation");
 		}
 	}
 
-	bool prope_for_write(const void* address, const size_t length, const uint64_t alignment)
+	bool probe_for_write(const void* address, const size_t length, const uint64_t alignment)
 	{
 		__try
 		{
@@ -160,7 +160,7 @@ namespace memory
 
 	void assert_writability(const void* address, const size_t length, const uint64_t alignment)
 	{
-		if (!prope_for_write(address, length, alignment))
+		if (!probe_for_write(address, length, alignment))
 		{
 			throw std::runtime_error("Access violation");
 		}
