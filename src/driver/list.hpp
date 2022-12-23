@@ -52,6 +52,24 @@ namespace utils
 				return *this;
 			}
 
+			iterator operator+(const size_t num) const
+			{
+				auto entry = this->entry_;
+
+				for (size_t i = 0; i < num; ++i)
+				{
+					if (!entry)
+					{
+						return {};
+					}
+
+					entry = entry->next;
+				}
+
+
+				return {entry};
+			}
+
 		private:
 			ListEntry* entry_{nullptr};
 
@@ -269,7 +287,7 @@ namespace utils
 				this->object_allocator_.free(list_entry->entry_base);
 				this->list_allocator_.free(list_entry->this_base);
 
-				return iterator(*inseration_point);
+				return { *inseration_point };
 			}
 
 			throw std::runtime_error("Bad iterator");
