@@ -1,6 +1,7 @@
 #pragma once
 
 #define DECLSPEC_PAGE_ALIGN DECLSPEC_ALIGN(PAGE_SIZE)
+#include "list.hpp"
 
 namespace vmx
 {
@@ -55,8 +56,6 @@ namespace vmx
 
 		uint64_t physical_base_address{};
 		const void* virtual_base_address{};
-
-		ept_translation_hint* next_hint{nullptr};
 	};
 
 	struct guest_context;
@@ -77,7 +76,7 @@ namespace vmx
 		void install_code_watch_point(uint64_t physical_page);
 
 		void install_hook(const void* destination, const void* source, size_t length,
-		                  ept_translation_hint* translation_hint = nullptr);
+		                 const utils::list<ept_translation_hint>& hints = {});
 		void disable_all_hooks() const;
 
 		void handle_violation(guest_context& guest_context);
@@ -86,8 +85,7 @@ namespace vmx
 		ept_pointer get_ept_pointer() const;
 		void invalidate() const;
 
-		static ept_translation_hint* generate_translation_hints(const void* destination, size_t length);
-		static void free_translation_hints(ept_translation_hint* hints);
+		static utils::list<ept_translation_hint> generate_translation_hints(const void* destination, size_t length);
 
 		uint64_t* get_access_records(size_t* count);
 
@@ -113,12 +111,12 @@ namespace vmx
 		ept_code_watch_point* allocate_ept_code_watch_point();
 		ept_code_watch_point* find_ept_code_watch_point(uint64_t physical_address) const;
 
-		ept_hook* get_or_create_ept_hook(void* destination, ept_translation_hint* translation_hint = nullptr);
+		ept_hook* get_or_create_ept_hook(void* destination, const ept_translation_hint* translation_hint = nullptr);
 
 		void split_large_page(uint64_t physical_address);
 
 		void install_page_hook(void* destination, const void* source, size_t length,
-		                       ept_translation_hint* translation_hint = nullptr);
+		                       const ept_translation_hint* translation_hint = nullptr);
 
 		void record_access(uint64_t rip);
 	};

@@ -37,11 +37,12 @@ namespace
 		return STATUS_SUCCESS;
 	}
 
-	vmx::ept_translation_hint* generate_translation_hints(uint32_t process_id, const void* target_address, size_t size)
+	utils::list<vmx::ept_translation_hint> generate_translation_hints(uint32_t process_id, const void* target_address,
+	                                                                  size_t size)
 	{
-		vmx::ept_translation_hint* translation_hints{nullptr};
+		utils::list<vmx::ept_translation_hint> translation_hints{};
 
-		thread::kernel_thread t([&translation_hints, process_id, target_address, size]
+		thread::kernel_thread([&translation_hints, process_id, target_address, size]
 		{
 			debug_log("Looking up process: %d\n", process_id);
 
@@ -52,8 +53,7 @@ namespace
 				return;
 			}
 
-			const auto name = process_handle.get_image_filename();
-			if (name)
+			if (const auto name = process_handle.get_image_filename())
 			{
 				debug_log("Attaching to %s\n", name);
 			}
@@ -62,9 +62,7 @@ namespace
 
 			debug_log("Generating translation hints for address: %p\n", target_address);
 			translation_hints = vmx::ept::generate_translation_hints(target_address, size);
-		});
-
-		t.join();
+		}).join();
 
 		return translation_hints;
 	}
@@ -83,17 +81,11 @@ namespace
 			throw std::runtime_error("Failed to copy buffer");
 		}
 
-		vmx::ept_translation_hint* translation_hints = nullptr;
-		auto destructor = utils::finally([&translation_hints]()
-		{
-			vmx::ept::free_translation_hints(translation_hints);
-		});
-
 		memcpy(buffer.get(), request.source_data, request.source_data_size);
-		translation_hints = generate_translation_hints(request.process_id, request.target_address,
+		auto translation_hints = generate_translation_hints(request.process_id, request.target_address,
 		                                               request.source_data_size);
 
-		if (!translation_hints)
+		if (translation_hints.empty())
 		{
 			debug_log("Failed to generate tranlsation hints\n");
 			return;

@@ -20,7 +20,7 @@ public:
 	bool is_enabled() const;
 
 	bool install_ept_hook(const void* destination, const void* source, size_t length,
-	                      vmx::ept_translation_hint* translation_hint = nullptr);
+	                      const utils::list<vmx::ept_translation_hint>& hints = {});
 
 	bool install_ept_code_watch_point(uint64_t physical_page, bool invalidate = true) const;
 	bool install_ept_code_watch_points(const uint64_t* physical_pages, size_t count) const;
@@ -44,9 +44,9 @@ private:
 	void free_vm_states();
 
 	bool try_install_ept_hook_on_core(const void* destination, const void* source, size_t length,
-	                                  vmx::ept_translation_hint* translation_hint = nullptr);
+	                                  const utils::list<vmx::ept_translation_hint>& hints = {});
 	void install_ept_hook_on_core(const void* destination, const void* source, size_t length,
-	                              vmx::ept_translation_hint* translation_hint = nullptr);
+	                              const utils::list<vmx::ept_translation_hint>& hints = {});
 
 	vmx::state* get_current_vm_state() const;
 };

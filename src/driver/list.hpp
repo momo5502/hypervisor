@@ -31,14 +31,14 @@ namespace utils
 			{
 			}
 
-			T* operator*() const
+			T& operator*() const
 			{
-				return this->entry_->entry;
+				return *this->entry_->entry;
 			}
 
-			T* operator->() const
+			T& operator->() const
 			{
-				return this->entry_->entry;
+				return *this->entry_->entry;
 			}
 
 			bool operator==(const iterator& i) const
@@ -46,7 +46,7 @@ namespace utils
 				return this->entry_ == i.entry_;
 			}
 
-			iterator operator++() const
+			iterator operator++()
 			{
 				this->entry_ = this->entry_->next;
 				return *this;
@@ -89,14 +89,14 @@ namespace utils
 			{
 			}
 
-			const T* operator*() const
+			const T& operator*() const
 			{
-				return this->entry_->entry;
+				return *this->entry_->entry;
 			}
 
-			const T* operator->() const
+			const T& operator->() const
 			{
-				return this->entry_->entry;
+				return *this->entry_->entry;
 			}
 
 			bool operator==(const const_iterator& i) const
@@ -104,7 +104,7 @@ namespace utils
 				return this->entry_ == i.entry_;
 			}
 
-			const_iterator operator++() const
+			const_iterator operator++()
 			{
 				this->entry_ = this->entry_->next;
 				return *this;
@@ -166,30 +166,32 @@ namespace utils
 			return *this;
 		}
 
-		T& push_back(T obj)
+		T& push_back(const T& obj)
 		{
-			auto** inseration_point = &this->entries_;
-			while (*inseration_point)
-			{
-				inseration_point = &(*inseration_point)->next;
-			}
+			auto& entry = this->add_uninitialized_entry();
 
-			auto* list_base = this->list_allocator_.allocate(sizeof(ListEntry) + alignof(ListEntry));
-			auto* entry_base = this->object_allocator_.allocate(sizeof(T) + alignof(T));
+			new(&entry) T(obj);
 
-			auto* entry = align_pointer<T>(entry_base);
-			auto* list_entry = align_pointer<ListEntry>(list_base);
+			return entry;
+		}
 
-			list_entry->this_base = list_base;
-			list_entry->entry_base = entry_base;
-			list_entry->next = nullptr;
-			list_entry->entry = entry;
+		T& push_back(T&& obj)
+		{
+			auto& entry = this->add_uninitialized_entry();
 
-			*inseration_point = list_entry;
+			new(&entry) T(std::move(obj));
 
-			new(entry) T(std::move(obj));
+			return entry;
+		}
 
-			return *entry;
+		template <typename... Args>
+		T& emplace_back(Args&&... args)
+		{
+			auto& entry = this->add_uninitialized_entry();
+
+			new(&entry) T(std::forward<Args>(args)...);
+
+			return entry;
 		}
 
 		T& operator[](const size_t index)
@@ -232,7 +234,7 @@ namespace utils
 
 		void clear()
 		{
-			while (this->entries_)
+			while (!this->empty())
 			{
 				this->erase(this->begin());
 			}
@@ -287,10 +289,15 @@ namespace utils
 				this->object_allocator_.free(list_entry->entry_base);
 				this->list_allocator_.free(list_entry->this_base);
 
-				return { *inseration_point };
+				return {*inseration_point};
 			}
 
 			throw std::runtime_error("Bad iterator");
+		}
+
+		bool empty() const
+		{
+			return this->entries_ == nullptr;
 		}
 
 	private:
@@ -308,6 +315,30 @@ namespace utils
 			ptr = (ptr + align_bits) & (~align_bits);
 
 			return reinterpret_cast<U*>(ptr);
+		}
+
+		T& add_uninitialized_entry()
+		{
+			auto** inseration_point = &this->entries_;
+			while (*inseration_point)
+			{
+				inseration_point = &(*inseration_point)->next;
+			}
+
+			auto* list_base = this->list_allocator_.allocate(sizeof(ListEntry) + alignof(ListEntry));
+			auto* entry_base = this->object_allocator_.allocate(sizeof(T) + alignof(T));
+
+			auto* entry = align_pointer<T>(entry_base);
+			auto* list_entry = align_pointer<ListEntry>(list_base);
+
+			list_entry->this_base = list_base;
+			list_entry->entry_base = entry_base;
+			list_entry->next = nullptr;
+			list_entry->entry = entry;
+
+			*inseration_point = list_entry;
+
+			return *entry;
 		}
 	};
 }

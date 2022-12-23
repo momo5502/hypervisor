@@ -91,17 +91,32 @@ namespace utils
 			}
 		}
 
-		T& push_back(T obj)
+		T& push_back(const T& obj)
 		{
-			if (this->size_ + 1 > this->capacity_)
-			{
-				this->reserve(max(this->capacity_, 5) * 2);
-			}
+			auto& entry = this->add_uninitialized_entry();
 
-			auto* data = this->data() + this->size_++;
-			new(data) T(std::move(obj));
+			new(&entry) T(obj);
 
-			return *data;
+			return entry;
+		}
+
+		T& push_back(T&& obj)
+		{
+			auto& entry = this->add_uninitialized_entry();
+
+			new(&entry) T(std::move(obj));
+
+			return entry;
+		}
+
+		template <typename... Args>
+		T& emplace_back(Args&&... args)
+		{
+			auto& entry = this->add_uninitialized_entry();
+
+			new(&entry) T(std::forward<Args>(args)...);
+
+			return entry;
 		}
 
 		T& operator[](const size_t index)
@@ -217,11 +232,27 @@ namespace utils
 			return iterator;
 		}
 
+		bool empty() const
+		{
+			return this->size_ == 0;
+		}
+
 	private:
 		Allocator allocator_{};
 		void* storage_{nullptr};
 		size_t capacity_{0};
 		size_t size_{0};
+
+		T& add_uninitialized_entry()
+		{
+			if (this->size_ + 1 > this->capacity_)
+			{
+				this->reserve(max(this->capacity_, 5) * 2);
+			}
+
+			auto* data = this->data() + this->size_++;
+			return *data;
+		}
 
 		void* allocate_memory_for_capacity(const size_t capacity)
 		{

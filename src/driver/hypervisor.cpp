@@ -163,11 +163,11 @@ bool hypervisor::is_enabled() const
 }
 
 bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length,
-                                  vmx::ept_translation_hint* translation_hint)
+                                  const utils::list<vmx::ept_translation_hint>& hints)
 {
 	try
 	{
-		this->ept_->install_hook(destination, source, length, translation_hint);
+		this->ept_->install_hook(destination, source, length, hints);
 	}
 	catch (std::exception& e)
 	{
@@ -183,7 +183,7 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
 	volatile long failures = 0;
 	thread::dispatch_on_all_cores([&]
 	{
-		if (!this->try_install_ept_hook_on_core(destination, source, length, translation_hint))
+		if (!this->try_install_ept_hook_on_core(destination, source, length, hints))
 		{
 			InterlockedIncrement(&failures);
 		}
@@ -192,7 +192,7 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
 	return failures == 0;
 }
 
-bool hypervisor::install_ept_code_watch_point(const uint64_t physical_page, bool invalidate) const
+bool hypervisor::install_ept_code_watch_point(const uint64_t physical_page, const bool invalidate) const
 {
 	try
 	{
@@ -826,11 +826,11 @@ void hypervisor::free_vm_states()
 }
 
 bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length,
-                                              vmx::ept_translation_hint* translation_hint)
+                                              const utils::list<vmx::ept_translation_hint>& hints)
 {
 	try
 	{
-		this->install_ept_hook_on_core(destination, source, length, translation_hint);
+		this->install_ept_hook_on_core(destination, source, length, hints);
 		return true;
 	}
 	catch (std::exception& e)
@@ -846,7 +846,7 @@ bool hypervisor::try_install_ept_hook_on_core(const void* destination, const voi
 }
 
 void hypervisor::install_ept_hook_on_core(const void* destination, const void* source, const size_t length,
-                                          vmx::ept_translation_hint* translation_hint)
+                                          const utils::list<vmx::ept_translation_hint>& hints)
 {
 	auto* vm_state = this->get_current_vm_state();
 	if (!vm_state)
@@ -857,8 +857,8 @@ void hypervisor::install_ept_hook_on_core(const void* destination, const void* s
 	(void)destination;
 	(void)source;
 	(void)length;
-	(void)translation_hint;
-	//vm_state->ept->install_hook(destination, source, length, translation_hint);
+	(void)hints;
+	//vm_state->ept->install_hook(destination, source, length, hints);
 
 	if (this->is_enabled())
 	{
