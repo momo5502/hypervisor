@@ -1,12 +1,12 @@
 #pragma once
-#include "type_traits.hpp"
-#include "memory.hpp"
+#include "allocator.hpp"
 #include "exception.hpp"
 #include "finally.hpp"
 
 namespace utils
 {
-	template <typename T>
+	template <typename T, typename Allocator = NonPagedAllocator>
+		requires IsAllocator<Allocator>
 	class vector
 	{
 	public:
@@ -38,9 +38,9 @@ namespace utils
 				this->clear();
 				this->reserve(obj.size_);
 
-				for (size_t i = 0; i < obj.size_; ++i)
+				for (const auto& i : obj)
 				{
-					this->push_back(obj.at(i));
+					this->push_back(i);
 				}
 			}
 
@@ -75,12 +75,12 @@ namespace utils
 			auto* old_mem = this->storage_;
 			auto* old_data = this->data();
 
-			this->storage_ = allocate_memory_for_capacity(capacity);
+			this->storage_ = this->allocate_memory_for_capacity(capacity);
 			this->capacity_ = capacity;
 
-			auto _ = utils::finally([&old_mem]
+			auto _ = utils::finally([&old_mem, this]
 			{
-				free_memory(old_mem);
+				this->free_memory(old_mem);
 			});
 
 			auto* data = this->data();
@@ -198,21 +198,41 @@ namespace utils
 			return this->data() + this->size_;
 		}
 
+		T* erase(T* iterator)
+		{
+			auto index = iterator - this->begin();
+			if (index < 0 || static_cast<size_t>(index) > this->size_)
+			{
+				throw std::runtime_error("Bad iterator");
+			}
+
+			const auto data = this->data();
+			for (size_t i = index + 1; i < this->size_; ++i)
+			{
+				data[i - 1] = std::move(data[i]);
+			}
+
+			data[this->size_--].~T();
+
+			return iterator;
+		}
+
 	private:
+		Allocator allocator_{};
 		void* storage_{nullptr};
 		size_t capacity_{0};
 		size_t size_{0};
 
-		static void* allocate_memory_for_capacity(const size_t capacity)
+		void* allocate_memory_for_capacity(const size_t capacity)
 		{
 			constexpr auto alignment = alignof(T);
-			auto* memory = memory::allocate_non_paged_memory(capacity * sizeof(T) + alignment);
+			auto* memory = this->allocator_.allocate(capacity * sizeof(T) + alignment);
 			return memory;
 		}
 
-		static void free_memory(void* memory)
+		void free_memory(void* memory)
 		{
-			memory::free_non_paged_memory(memory);
+			this->allocator_.free(memory);
 		}
 
 		template <typename U>
