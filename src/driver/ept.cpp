@@ -95,18 +95,16 @@ namespace vmx
 			}
 		}
 
-		void reset_all_watch_point_pages(ept_code_watch_point* watch_point)
+		void reset_all_watch_point_pages(utils::list<ept_code_watch_point>& watch_points)
 		{
-			while (watch_point)
+			for(const auto& watch_point : watch_points)
 			{
-				if (watch_point->target_page)
+				if (watch_point.target_page)
 				{
-					watch_point->target_page->write_access = 0;
-					watch_point->target_page->read_access = 0;
-					watch_point->target_page->execute_access = 1;
+					watch_point.target_page->write_access = 0;
+					watch_point.target_page->read_access = 0;
+					watch_point.target_page->execute_access = 1;
 				}
-
-				watch_point = watch_point->next_watch_point;
 			}
 		}
 	}
@@ -142,29 +140,7 @@ namespace vmx
 
 	ept::~ept()
 	{
-		auto* split = this->ept_splits;
-		while (split)
-		{
-			auto* current_split = split;
-			split = split->next_split;
-			memory::free_aligned_object(current_split);
-		}
-
-		auto* hook = this->ept_hooks;
-		while (hook)
-		{
-			auto* current_hook = hook;
-			hook = hook->next_hook;
-			memory::free_aligned_object(current_hook);
-		}
-
-		auto* watch_point = this->ept_code_watch_points;
-		while (watch_point)
-		{
-			auto* current_watch_point = watch_point;
-			watch_point = watch_point->next_watch_point;
-			memory::free_non_paged_object(current_watch_point);
-		}
+		this->disable_all_hooks();
 	}
 
 	void ept::install_page_hook(void* destination, const void* source, const size_t length,
@@ -230,11 +206,9 @@ namespace vmx
 
 	void ept::disable_all_hooks() const
 	{
-		auto* hook = this->ept_hooks;
-		while (hook)
+		for(auto& hook : this->ept_hooks)
 		{
-			hook->target_page->flags = hook->original_entry.flags;
-			hook = hook->next_hook;
+			hook.target_page->flags = hook.original_entry.flags;
 		}
 	}
 
@@ -368,23 +342,19 @@ namespace vmx
 			return;
 		}
 
-		auto* watch_point = this->allocate_ept_code_watch_point();
-		if (!watch_point)
-		{
-			throw std::runtime_error("Failed to allocate watch point");
-		}
+		auto& watch_point = this->allocate_ept_code_watch_point();
 
 		this->split_large_page(physical_base_address);
 
-		watch_point->physical_base_address = physical_base_address;
-		watch_point->target_page = this->get_pml1_entry(physical_base_address);
-		if (!watch_point->target_page)
+		watch_point.physical_base_address = physical_base_address;
+		watch_point.target_page = this->get_pml1_entry(physical_base_address);
+		if (!watch_point.target_page)
 		{
 			throw std::runtime_error("Failed to get PML1 entry for target address");
 		}
 
-		watch_point->target_page->write_access = 0;
-		watch_point->target_page->read_access = 0;
+		watch_point.target_page->write_access = 0;
+		watch_point.target_page->read_access = 0;
 	}
 
 	ept_pointer ept::get_ept_pointer() const
@@ -448,91 +418,55 @@ namespace vmx
 		return &pml1[ADDRMASK_EPT_PML1_INDEX(physical_address)];
 	}
 
-	pml1* ept::find_pml1_table(const uint64_t physical_address) const
+	pml1* ept::find_pml1_table(const uint64_t physical_address)
 	{
-		auto* split = this->ept_splits;
-		while (split)
+		for(auto& split : this->ept_splits)
 		{
-			if (memory::get_physical_address(&split->pml1[0]) == physical_address)
+			if (memory::get_physical_address(&split.pml1[0]) == physical_address)
 			{
-				return split->pml1;
+				return split.pml1;
 			}
-
-			split = split->next_split;
 		}
 
 		return nullptr;
 	}
 
-	ept_split* ept::allocate_ept_split()
+	ept_split& ept::allocate_ept_split()
 	{
-		auto* split = memory::allocate_aligned_object<ept_split>();
-		if (!split)
-		{
-			throw std::runtime_error("Failed to allocate ept split object");
-		}
-
-		split->next_split = this->ept_splits;
-		this->ept_splits = split;
-
-		return split;
+		return this->ept_splits.emplace_back();
 	}
 
-	ept_hook* ept::allocate_ept_hook(const uint64_t physical_address)
+	ept_hook& ept::allocate_ept_hook(const uint64_t physical_address)
 	{
-		auto* hook = memory::allocate_aligned_object<ept_hook>(physical_address);
-		if (!hook)
-		{
-			throw std::runtime_error("Failed to allocate ept hook object");
-		}
-
-		hook->next_hook = this->ept_hooks;
-		this->ept_hooks = hook;
-
-		return hook;
+		return this->ept_hooks.emplace_back(physical_address);
 	}
 
-	ept_hook* ept::find_ept_hook(const uint64_t physical_address) const
+	ept_hook* ept::find_ept_hook(const uint64_t physical_address)
 	{
-		auto* hook = this->ept_hooks;
-		while (hook)
+		for (auto& hook : this->ept_hooks)
 		{
-			if (hook->physical_base_address == physical_address)
+			if (hook.physical_base_address == physical_address)
 			{
-				return hook;
+				return &hook;
 			}
-
-			hook = hook->next_hook;
 		}
 
 		return nullptr;
 	}
 
-	ept_code_watch_point* ept::allocate_ept_code_watch_point()
+	ept_code_watch_point& ept::allocate_ept_code_watch_point()
 	{
-		auto* watch_point = memory::allocate_non_paged_object<ept_code_watch_point>();
-		if (!watch_point)
-		{
-			throw std::runtime_error("Failed to allocate ept watch point object");
-		}
-
-		watch_point->next_watch_point = this->ept_code_watch_points;
-		this->ept_code_watch_points = watch_point;
-
-		return watch_point;
+		return this->ept_code_watch_points.emplace_back();
 	}
 
-	ept_code_watch_point* ept::find_ept_code_watch_point(const uint64_t physical_address) const
+	ept_code_watch_point* ept::find_ept_code_watch_point(const uint64_t physical_address)
 	{
-		auto* watch_point = this->ept_code_watch_points;
-		while (watch_point)
+		for(auto& watch_point : this->ept_code_watch_points)
 		{
-			if (watch_point->physical_base_address == physical_address)
+			if (watch_point.physical_base_address == physical_address)
 			{
-				return watch_point;
+				return &watch_point;
 			}
-
-			watch_point = watch_point->next_watch_point;
 		}
 
 		return nullptr;
@@ -573,12 +507,7 @@ namespace vmx
 			return hook;
 		}
 
-		hook = this->allocate_ept_hook(physical_base_address);
-
-		if (!hook)
-		{
-			throw std::runtime_error("Failed to allocate hook");
-		}
+		hook = &this->allocate_ept_hook(physical_base_address);
 
 		this->split_large_page(physical_address);
 
@@ -624,7 +553,7 @@ namespace vmx
 			return;
 		}
 
-		auto* split = this->allocate_ept_split();
+		auto& split = this->allocate_ept_split();
 
 		epte pml1_template{};
 		pml1_template.flags = 0;
@@ -635,11 +564,11 @@ namespace vmx
 		pml1_template.ignore_pat = target_entry->ignore_pat;
 		pml1_template.suppress_ve = target_entry->suppress_ve;
 
-		__stosq(reinterpret_cast<uint64_t*>(&split->pml1[0]), pml1_template.flags, EPT_PTE_ENTRY_COUNT);
+		__stosq(reinterpret_cast<uint64_t*>(&split.pml1[0]), pml1_template.flags, EPT_PTE_ENTRY_COUNT);
 
 		for (auto i = 0; i < EPT_PTE_ENTRY_COUNT; ++i)
 		{
-			split->pml1[i].page_frame_number = ((target_entry->page_frame_number * 2_mb) / PAGE_SIZE) + i;
+			split.pml1[i].page_frame_number = ((target_entry->page_frame_number * 2_mb) / PAGE_SIZE) + i;
 		}
 
 		pml2_ptr new_pointer{};
@@ -648,7 +577,7 @@ namespace vmx
 		new_pointer.write_access = 1;
 		new_pointer.execute_access = 1;
 
-		new_pointer.page_frame_number = memory::get_physical_address(&split->pml1[0]) / PAGE_SIZE;
+		new_pointer.page_frame_number = memory::get_physical_address(&split.pml1[0]) / PAGE_SIZE;
 
 		target_entry->flags = new_pointer.flags;
 	}

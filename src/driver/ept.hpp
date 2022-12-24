@@ -20,20 +20,17 @@ namespace vmx
 			pml2 entry{};
 			pml2_ptr pointer;
 		};
-
-		ept_split* next_split{nullptr};
 	};
 
 	struct ept_code_watch_point
 	{
 		uint64_t physical_base_address{};
 		pml1* target_page{};
-		ept_code_watch_point* next_watch_point{nullptr};
 	};
 
 	struct ept_hook
 	{
-		ept_hook(const uint64_t physical_base);
+		ept_hook(uint64_t physical_base);
 		~ept_hook();
 
 		DECLSPEC_PAGE_ALIGN uint8_t fake_page[PAGE_SIZE]{};
@@ -46,8 +43,6 @@ namespace vmx
 		pml1 original_entry{};
 		pml1 execute_entry{};
 		pml1 readwrite_entry{};
-
-		ept_hook* next_hook{nullptr};
 	};
 
 	struct ept_translation_hint
@@ -76,7 +71,7 @@ namespace vmx
 		void install_code_watch_point(uint64_t physical_page);
 
 		void install_hook(const void* destination, const void* source, size_t length,
-		                 const utils::list<ept_translation_hint>& hints = {});
+		                  const utils::list<ept_translation_hint>& hints = {});
 		void disable_all_hooks() const;
 
 		void handle_violation(guest_context& guest_context);
@@ -96,20 +91,20 @@ namespace vmx
 
 		uint64_t access_records[1024];
 
-		ept_split* ept_splits{nullptr};
-		ept_hook* ept_hooks{nullptr};
-		ept_code_watch_point* ept_code_watch_points{nullptr};
+		utils::list<ept_split, utils::AlignedAllocator> ept_splits{};
+		utils::list<ept_hook, utils::AlignedAllocator> ept_hooks{};
+		utils::list<ept_code_watch_point> ept_code_watch_points{};
 
 		pml2* get_pml2_entry(uint64_t physical_address);
 		pml1* get_pml1_entry(uint64_t physical_address);
-		pml1* find_pml1_table(uint64_t physical_address) const;
+		pml1* find_pml1_table(uint64_t physical_address);
 
-		ept_split* allocate_ept_split();
-		ept_hook* allocate_ept_hook(uint64_t physical_address);
-		ept_hook* find_ept_hook(uint64_t physical_address) const;
+		ept_split& allocate_ept_split();
+		ept_hook& allocate_ept_hook(uint64_t physical_address);
+		ept_hook* find_ept_hook(uint64_t physical_address);
 
-		ept_code_watch_point* allocate_ept_code_watch_point();
-		ept_code_watch_point* find_ept_code_watch_point(uint64_t physical_address) const;
+		ept_code_watch_point& allocate_ept_code_watch_point();
+		ept_code_watch_point* find_ept_code_watch_point(uint64_t physical_address);
 
 		ept_hook* get_or_create_ept_hook(void* destination, const ept_translation_hint* translation_hint = nullptr);
 

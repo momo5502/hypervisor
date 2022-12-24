@@ -4,7 +4,7 @@
 namespace utils
 {
 	template <typename T>
-	concept IsAllocator = requires(size_t size, void* ptr)
+	concept is_allocator = requires(size_t size, void* ptr)
 	{
 		T().free(T().allocate(size));
 		T().free(ptr);

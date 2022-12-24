@@ -6,7 +6,7 @@
 namespace utils
 {
 	template <typename T, typename Allocator = NonPagedAllocator>
-		requires IsAllocator<Allocator>
+		requires is_allocator<Allocator>
 	class vector
 	{
 	public:
@@ -258,6 +258,11 @@ namespace utils
 		{
 			constexpr auto alignment = alignof(T);
 			auto* memory = this->allocator_.allocate(capacity * sizeof(T) + alignment);
+			if (!memory)
+			{
+				throw std::runtime_error("Failed to allocate memory");
+			}
+
 			return memory;
 		}
 

@@ -6,13 +6,13 @@
 namespace utils
 {
 	template <typename T, typename ObjectAllocator = NonPagedAllocator, typename ListAllocator = NonPagedAllocator>
-		requires IsAllocator<ObjectAllocator> && IsAllocator<ListAllocator>
+		requires is_allocator<ObjectAllocator> && is_allocator<ListAllocator>
 	class list
 	{
-		struct ListEntry
+		struct list_entry
 		{
 			T* entry{nullptr};
-			ListEntry* next{nullptr};
+			list_entry* next{nullptr};
 
 			void* this_base{nullptr};
 			void* entry_base{nullptr};
@@ -26,7 +26,7 @@ namespace utils
 			friend list;
 
 		public:
-			iterator(ListEntry* entry = nullptr)
+			iterator(list_entry* entry = nullptr)
 				: entry_(entry)
 			{
 			}
@@ -71,9 +71,9 @@ namespace utils
 			}
 
 		private:
-			ListEntry* entry_{nullptr};
+			list_entry* entry_{nullptr};
 
-			ListEntry* get_entry() const
+			list_entry* get_entry() const
 			{
 				return entry_;
 			}
@@ -84,7 +84,7 @@ namespace utils
 			friend list;
 
 		public:
-			const_iterator(ListEntry* entry = nullptr)
+			const_iterator(list_entry* entry = nullptr)
 				: entry_(entry)
 			{
 			}
@@ -111,9 +111,9 @@ namespace utils
 			}
 
 		private:
-			ListEntry* entry_{nullptr};
+			list_entry* entry_{nullptr};
 
-			ListEntry* get_entry() const
+			list_entry* get_entry() const
 			{
 				return entry_;
 			}
@@ -274,22 +274,22 @@ namespace utils
 		iterator erase(iterator iterator)
 		{
 			auto* list_entry = iterator.get_entry();
-			auto** inseration_point = &this->entries_;
-			while (*inseration_point && list_entry)
+			auto** insertion_point = &this->entries_;
+			while (*insertion_point && list_entry)
 			{
-				if (*inseration_point != list_entry)
+				if (*insertion_point != list_entry)
 				{
-					inseration_point = &(*inseration_point)->next;
+					insertion_point = &(*insertion_point)->next;
 					continue;
 				}
 
-				*inseration_point = list_entry->next;
+				*insertion_point = list_entry->next;
 
 				list_entry->entry->~T();
 				this->object_allocator_.free(list_entry->entry_base);
 				this->list_allocator_.free(list_entry->this_base);
 
-				return {*inseration_point};
+				return {*insertion_point};
 			}
 
 			throw std::runtime_error("Bad iterator");
@@ -305,7 +305,7 @@ namespace utils
 
 		ObjectAllocator object_allocator_{};
 		ListAllocator list_allocator_{};
-		ListEntry* entries_{nullptr};
+		list_entry* entries_{nullptr};
 
 		template <typename U, typename V>
 		static U* align_pointer(V* pointer)
@@ -317,28 +317,63 @@ namespace utils
 			return reinterpret_cast<U*>(ptr);
 		}
 
-		T& add_uninitialized_entry()
+		void allocate_entry(void*& list_base, void* entry_base)
 		{
-			auto** inseration_point = &this->entries_;
-			while (*inseration_point)
+			list_base = nullptr;
+			entry_base = nullptr;
+
+			auto destructor = utils::finally([&]
 			{
-				inseration_point = &(*inseration_point)->next;
+				if (list_base)
+				{
+					this->list_allocator_.free(list_base);
+				}
+
+				if (entry_base)
+				{
+					this->object_allocator_.free(entry_base);
+				}
+			});
+
+			list_base = this->list_allocator_.allocate(sizeof(list_entry) + alignof(list_entry));
+			if (!list_base)
+			{
+				throw std::runtime_error("Memory allocation failed");
 			}
 
-			auto* list_base = this->list_allocator_.allocate(sizeof(ListEntry) + alignof(ListEntry));
-			auto* entry_base = this->object_allocator_.allocate(sizeof(T) + alignof(T));
+			entry_base = this->object_allocator_.allocate(sizeof(T) + alignof(T));
+			if (!entry_base)
+			{
+				throw std::runtime_error("Memory allocation failed");
+			}
 
-			auto* entry = align_pointer<T>(entry_base);
-			auto* list_entry = align_pointer<ListEntry>(list_base);
+			destructor.cancel();
+		}
 
-			list_entry->this_base = list_base;
-			list_entry->entry_base = entry_base;
-			list_entry->next = nullptr;
-			list_entry->entry = entry;
 
-			*inseration_point = list_entry;
+		T& add_uninitialized_entry()
+		{
+			void* list_base = {};
+			void* entry_base = {};
+			this->allocate_entry(list_base, entry_base);
 
-			return *entry;
+			auto** insertion_point = &this->entries_;
+			while (*insertion_point)
+			{
+				insertion_point = &(*insertion_point)->next;
+			}
+
+			auto* obj = align_pointer<T>(entry_base);
+			auto* entry = align_pointer<list_entry>(list_base);
+
+			entry->this_base = list_base;
+			entry->entry_base = entry_base;
+			entry->next = nullptr;
+			entry->entry = obj;
+
+			*insertion_point = entry;
+
+			return *obj;
 		}
 	};
 }
