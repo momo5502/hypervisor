@@ -596,19 +596,18 @@ namespace vmx
 			const auto page_remaining = PAGE_SIZE - page_offset;
 			const auto data_to_write = min(page_remaining, current_length);
 
-			ept_translation_hint current_hint{};
-
-			current_hint.virtual_base_address = aligned_destination;
-			current_hint.physical_base_address = memory::get_physical_address(aligned_destination);
-
-			if (!current_hint.physical_base_address)
+			const auto physical_base_address = memory::get_physical_address(aligned_destination);
+			if (!physical_base_address)
 			{
 				throw std::runtime_error("Failed to resolve physical address");
 			}
 
-			memcpy(&current_hint.page[0], aligned_destination, PAGE_SIZE);
+			auto& current_hint = hints.emplace_back();
 
-			hints.push_back(current_hint);
+			current_hint.virtual_base_address = aligned_destination;
+			current_hint.physical_base_address = physical_base_address;
+
+			memcpy(&current_hint.page[0], aligned_destination, PAGE_SIZE);
 
 			current_length -= data_to_write;
 			current_destination += data_to_write;

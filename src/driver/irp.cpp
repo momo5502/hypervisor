@@ -82,8 +82,8 @@ namespace
 		}
 
 		memcpy(buffer.get(), request.source_data, request.source_data_size);
-		auto translation_hints = generate_translation_hints(request.process_id, request.target_address,
-		                                               request.source_data_size);
+		const auto translation_hints = generate_translation_hints(request.process_id, request.target_address,
+		                                                          request.source_data_size);
 
 		if (translation_hints.empty())
 		{

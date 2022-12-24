@@ -317,7 +317,7 @@ namespace utils
 			return reinterpret_cast<U*>(ptr);
 		}
 
-		void allocate_entry(void*& list_base, void* entry_base)
+		void allocate_entry(void*& list_base, void*& entry_base)
 		{
 			list_base = nullptr;
 			entry_base = nullptr;
