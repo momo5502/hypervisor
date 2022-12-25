@@ -142,6 +142,7 @@ hypervisor::hypervisor()
 
 hypervisor::~hypervisor()
 {
+	this->disable_all_ept_hooks();
 	this->disable();
 	this->free_vm_states();
 	instance = nullptr;

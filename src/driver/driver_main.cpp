@@ -24,7 +24,6 @@ public:
 	~global_driver()
 	{
 		debug_log("Unloading driver\n");
-		this->hypervisor_.disable_all_ept_hooks();
 	}
 
 	global_driver(global_driver&&) noexcept = delete;
@@ -70,7 +69,10 @@ _Function_class_(DRIVER_UNLOAD) void unload(const PDRIVER_OBJECT driver_object)
 		{
 			global_driver_instance->pre_destroy(driver_object);
 			delete global_driver_instance;
+			global_driver_instance = nullptr;
 		}
+
+		globals::run_destructors();
 	}
 	catch (std::exception& e)
 	{
@@ -87,6 +89,7 @@ extern "C" NTSTATUS DriverEntry(const PDRIVER_OBJECT driver_object, PUNICODE_STR
 	try
 	{
 		driver_object->DriverUnload = unload;
+		globals::run_constructors();
 		global_driver_instance = new global_driver(driver_object);
 	}
 	catch (std::exception& e)
