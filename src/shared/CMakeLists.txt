@@ -1,5 +1,5 @@
-file(GLOB shared_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
-file(GLOB shared_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
+file(GLOB shared_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+file(GLOB shared_headers CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
 
 add_library(shared INTERFACE
 	${shared_headers}

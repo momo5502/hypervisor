@@ -2,9 +2,9 @@ enable_language(ASM_MASM)
 
 string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
 
-file(GLOB driver_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
-file(GLOB driver_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
-file(GLOB driver_asm_sources ${CMAKE_CURRENT_SOURCE_DIR}/*.asm)
+file(GLOB driver_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+file(GLOB driver_headers CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
+file(GLOB driver_asm_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.asm)
 
 wdk_add_driver(driver
     ${driver_sources}
@@ -27,6 +27,10 @@ target_link_libraries(driver
     vcrtl_driver
     ia32_doc
     shared
+)
+
+target_link_options(driver PRIVATE
+    "/IGNORE:4210"
 )
 
 ################################################
