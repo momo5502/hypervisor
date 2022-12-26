@@ -20,7 +20,7 @@ jobs:
           - release
     steps:
       - name: Check out files
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: true
           fetch-depth: 0
@@ -38,7 +38,7 @@ jobs:
         uses: ammaraskar/msvc-problem-matcher@master
 
       - name: Setup DevCmd
-        uses: ilammy/msvc-dev-cmd@v1.10.0
+        uses: ilammy/msvc-dev-cmd@v1.12.0
         with:
           arch: x64
 
@@ -52,7 +52,7 @@ jobs:
         run: cmake --build --preset=${{matrix.configuration}}
 
       - name: Upload ${{matrix.configuration}} binaries
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{matrix.configuration}} binaries
           path: |
