@@ -4,6 +4,7 @@
 #include "irp.hpp"
 #include "exception.hpp"
 #include "hypervisor.hpp"
+#include "globals.hpp"
 
 #define DOS_DEV_NAME L"\\DosDevices\\HelloDev"
 #define DEV_NAME L"\\Device\\HelloDev"
