@@ -1,3 +1,7 @@
+![license](https://img.shields.io/github/license/momo5502/hypervisor.svg)
+[![build](https://github.com/momo5502/hypervisor/workflows/Build/badge.svg)](https://github.com/momo5502/hypervisor/actions)
+[![paypal](https://img.shields.io/badge/PayPal-support-blue.svg?logo=paypal)](https://paypal.me/momo5502)
+
 # Hypervisor
 
 Experimental VT-X type 2 hypervisor with EPT hooking/analysis support.
