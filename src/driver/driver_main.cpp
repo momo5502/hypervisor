@@ -5,6 +5,7 @@
 #include "exception.hpp"
 #include "hypervisor.hpp"
 #include "globals.hpp"
+#include "process.hpp"
 #include "process_callback.hpp"
 
 #define DOS_DEV_NAME L"\\DosDevices\\HyperHook"
@@ -72,7 +73,11 @@ private:
 		{
 			if (this->hypervisor_.cleanup_process(process_id))
 			{
-				debug_log("Handled termination of %X\n", process_id);
+				const auto proc = process::find_process_by_id(process_id);
+				if(proc)
+				{
+					debug_log("Handled termination of %s\n", proc.get_image_filename());
+				}
 			}
 		}
 	}
