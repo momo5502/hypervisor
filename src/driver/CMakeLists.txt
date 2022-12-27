@@ -37,6 +37,11 @@ target_link_options(driver PRIVATE
     "/IGNORE:4210"
 )
 
+set_source_files_properties(resource.rc PROPERTIES LANGUAGE RC)
+target_sources(driver PRIVATE
+	resource.rc
+)
+
 set_target_properties(driver PROPERTIES OUTPUT_NAME "hyperhook")
 
 ################################################
