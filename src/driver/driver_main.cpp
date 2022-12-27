@@ -7,8 +7,8 @@
 #include "globals.hpp"
 #include "process_callback.hpp"
 
-#define DOS_DEV_NAME L"\\DosDevices\\HelloDev"
-#define DEV_NAME L"\\Device\\HelloDev"
+#define DOS_DEV_NAME L"\\DosDevices\\HyperHook"
+#define DEV_NAME L"\\Device\\HyperHook"
 
 class global_driver
 {

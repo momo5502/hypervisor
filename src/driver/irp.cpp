@@ -123,7 +123,7 @@ namespace
 
 	void watch_regions(const watch_request& watch_request)
 	{
-		auto* hypervisor = hypervisor::get_instance();
+		const auto* hypervisor = hypervisor::get_instance();
 		if (!hypervisor)
 		{
 			throw std::runtime_error("Hypervisor not installed");
