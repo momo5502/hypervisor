@@ -213,7 +213,7 @@ void report_records(const std::atomic_bool& flag, const driver_device& driver_de
 
 void unsafe_main(const int /*argc*/, char* /*argv*/[])
 {
-	{
+	//{
 		const auto driver_file = extract_driver();
 
 		driver driver{driver_file, "MomoLul"};
@@ -229,7 +229,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 			return;
 		}
 
-		printf("Reading modules...\n");
+		/*printf("Reading modules...\n");
 		const auto modules = process::get_modules(proc);
 		printf("Found %zu modules:\n", modules.size());
 
@@ -291,9 +291,9 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	printf("\nWatching stopped.\n");
 	_getch();
 
-	return;
+	return;*/
 
-	/*
+
 	// IW5
 	insert_nop(driver_device, pid, 0x4488A8, 2); // Force calling CG_DrawFriendOrFoeTargetBoxes
 	insert_nop(driver_device, pid, 0x47F6C7, 2); // Ignore blind-eye perks
@@ -311,7 +311,7 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	constexpr uint8_t data3[] = {0xEB};
 	patch_data(driver_device, pid, 0x443A2A, data3, sizeof(data3));
 	patch_data(driver_device, pid, 0x443978, data3, sizeof(data3));
-	*/
+
 
 	/*
 	insert_nop(driver_device, pid, 0x441D5A, 6);
@@ -324,13 +324,13 @@ void unsafe_main(const int /*argc*/, char* /*argv*/[])
 	patch_data(driver_device, pid, 0x52512C, data3, sizeof(data3));
 	*/
 
-	/*printf("Press any key to disable all hooks!\n");
+	printf("Press any key to disable all hooks!\n");
 	(void)_getch();
 
 	remove_hooks(driver_device);
 
 	printf("Press any key to exit!\n");
-	(void)_getch();*/
+	(void)_getch();
 }
 
 int main(const int argc, char* argv[])
