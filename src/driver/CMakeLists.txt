@@ -37,13 +37,16 @@ target_link_options(driver PRIVATE
     "/IGNORE:4210"
 )
 
+set_target_properties(driver PROPERTIES OUTPUT_NAME "hyperhook")
+
 ################################################
 
 set(DRIVER_FILE "$<TARGET_FILE:driver>")
+set(DRIVER_NAME "$<TARGET_FILE_NAME:driver>")
 
 file (GENERATE
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/$<LOWER_CASE:$<CONFIG>>/driver_file.h" 
-    CONTENT "#define DRIVER_FILE \"${DRIVER_FILE}\"\n"
+    CONTENT "#define DRIVER_FILE \"${DRIVER_FILE}\"\n#define DRIVER_NAME \"${DRIVER_NAME}\"\n"
 )
 
 add_library(driver_file INTERFACE)

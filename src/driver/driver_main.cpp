@@ -70,7 +70,10 @@ private:
 	{
 		if (type == process_callback::type::destroy)
 		{
-			this->hypervisor_.handle_process_termination(process_id);
+			if (this->hypervisor_.cleanup_process(process_id))
+			{
+				debug_log("Handled termination of %X\n", process_id);
+			}
 		}
 	}
 };

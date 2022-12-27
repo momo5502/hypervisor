@@ -635,7 +635,7 @@ namespace vmx
 		return this->access_records;
 	}
 
-	bool ept::handle_process_termination(const process_id process)
+	bool ept::cleanup_process(const process_id process)
 	{
 		bool changed = false;
 

@@ -90,7 +90,7 @@ namespace vmx
 
 		uint64_t* get_access_records(size_t* count);
 
-		bool handle_process_termination(process_id process);
+		bool cleanup_process(process_id process);
 
 	private:
 		DECLSPEC_PAGE_ALIGN pml4 epml4[EPT_PML4E_ENTRY_COUNT];

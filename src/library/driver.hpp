@@ -4,6 +4,7 @@
 class driver
 {
 public:
+	driver() = default;
 	driver(const std::filesystem::path& driver_file, const std::string& service_name);
 	~driver();
 

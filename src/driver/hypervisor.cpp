@@ -261,15 +261,15 @@ hypervisor* hypervisor::get_instance()
 	return instance;
 }
 
-void hypervisor::handle_process_termination(const process_id process)
+bool hypervisor::cleanup_process(const process_id process)
 {
-	if (!this->ept_->handle_process_termination(process))
+	if (!this->ept_->cleanup_process(process))
 	{
-		return;
+		return false;
 	}
 
-	debug_log("Handled termination of %X\n", process);
 	this->invalidate_cores();
+	return true;
 }
 
 void hypervisor::enable()

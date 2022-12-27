@@ -33,7 +33,7 @@ public:
 
 	static hypervisor* get_instance();
 
-	void handle_process_termination(process_id process);
+	bool cleanup_process(process_id process);
 
 private:
 	uint32_t vm_state_count_{0};
