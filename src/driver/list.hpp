@@ -168,29 +168,45 @@ namespace utils
 
 		T& push_back(const T& obj)
 		{
-			auto& entry = this->add_uninitialized_entry();
-
+			auto& entry = this->add_uninitialized_entry_back();
 			new(&entry) T(obj);
-
 			return entry;
 		}
 
 		T& push_back(T&& obj)
 		{
-			auto& entry = this->add_uninitialized_entry();
-
+			auto& entry = this->add_uninitialized_entry_back();
 			new(&entry) T(std::move(obj));
-
 			return entry;
 		}
 
 		template <typename... Args>
 		T& emplace_back(Args&&... args)
 		{
-			auto& entry = this->add_uninitialized_entry();
-
+			auto& entry = this->add_uninitialized_entry_back();
 			new(&entry) T(std::forward<Args>(args)...);
+			return entry;
+		}
 
+		T& push_front(const T& obj)
+		{
+			auto& entry = this->add_uninitialized_entry_front();
+			new(&entry) T(obj);
+			return entry;
+		}
+
+		T& push_front(T&& obj)
+		{
+			auto& entry = this->add_uninitialized_entry_front();
+			new(&entry) T(std::move(obj));
+			return entry;
+		}
+
+		template <typename... Args>
+		T& emplace_front(Args&&... args)
+		{
+			auto& entry = this->add_uninitialized_entry_front();
+			new(&entry) T(std::forward<Args>(args)...);
 			return entry;
 		}
 
@@ -269,6 +285,30 @@ namespace utils
 		const_iterator end() const
 		{
 			return {};
+		}
+
+		void erase(T& entry)
+		{
+			auto** insertion_point = &this->entries_;
+			while (*insertion_point)
+			{
+				if ((*insertion_point)->entry != &entry)
+				{
+					insertion_point = &(*insertion_point)->next;
+					continue;
+				}
+
+				auto* list_entry = *insertion_point;
+				*insertion_point = list_entry->next;
+
+				list_entry->entry->~T();
+				this->object_allocator_.free(list_entry->entry_base);
+				this->list_allocator_.free(list_entry->this_base);
+
+				return;
+			}
+
+			throw std::runtime_error("Bad entry");
 		}
 
 		iterator erase(iterator iterator)
@@ -350,18 +390,11 @@ namespace utils
 			destructor.cancel();
 		}
 
-
-		T& add_uninitialized_entry()
+		list_entry& create_uninitialized_list_entry()
 		{
 			void* list_base = {};
 			void* entry_base = {};
 			this->allocate_entry(list_base, entry_base);
-
-			auto** insertion_point = &this->entries_;
-			while (*insertion_point)
-			{
-				insertion_point = &(*insertion_point)->next;
-			}
 
 			auto* obj = align_pointer<T>(entry_base);
 			auto* entry = align_pointer<list_entry>(list_base);
@@ -371,9 +404,30 @@ namespace utils
 			entry->next = nullptr;
 			entry->entry = obj;
 
-			*insertion_point = entry;
+			return *entry;
+		}
 
-			return *obj;
+		T& add_uninitialized_entry_back()
+		{
+			auto** insertion_point = &this->entries_;
+			while (*insertion_point)
+			{
+				insertion_point = &(*insertion_point)->next;
+			}
+
+			auto& entry = this->create_uninitialized_list_entry();
+			*insertion_point = &entry;
+
+			return *entry.entry;
+		}
+
+		T& add_uninitialized_entry_front()
+		{
+			auto& entry = this->create_uninitialized_list_entry();
+			entry.next = this->entries_;
+			this->entries_ = &entry;
+
+			return *entry.entry;
 		}
 	};
 }

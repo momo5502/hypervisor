@@ -115,7 +115,7 @@ int atexit(const globals::destructor destructor)
 
 	try
 	{
-		globals::destructors->push_back(destructor);
+		globals::destructors->push_front(destructor);
 	}
 	catch (const std::exception& e)
 	{

@@ -5,6 +5,7 @@
 #include "exception.hpp"
 #include "hypervisor.hpp"
 #include "globals.hpp"
+#include "process_callback.hpp"
 
 #define DOS_DEV_NAME L"\\DosDevices\\HelloDev"
 #define DEV_NAME L"\\Device\\HelloDev"
@@ -16,8 +17,13 @@ public:
 		: sleep_callback_([this](const sleep_callback::type type)
 		  {
 			  this->sleep_notification(type);
-		  })
-		  , irp_(driver_object, DEV_NAME, DOS_DEV_NAME)
+		  }),
+		  process_callback_(
+			  [this](const HANDLE parent_id, const HANDLE process_id, const process_callback::type type)
+			  {
+				  this->process_notification(parent_id, process_id, type);
+			  }),
+		  irp_(driver_object, DEV_NAME, DOS_DEV_NAME)
 	{
 		debug_log("Driver started\n");
 	}
@@ -41,6 +47,7 @@ private:
 	bool hypervisor_was_enabled_{false};
 	hypervisor hypervisor_{};
 	sleep_callback sleep_callback_{};
+	process_callback::scoped_process_callback process_callback_{};
 	irp irp_{};
 
 	void sleep_notification(const sleep_callback::type type)
@@ -56,6 +63,19 @@ private:
 		{
 			debug_log("Waking up...\n");
 			this->hypervisor_.enable();
+		}
+	}
+
+	void process_notification(HANDLE /*parent_id*/, const HANDLE process_id, const process_callback::type type)
+	{
+		if (type == process_callback::type::create)
+		{
+			debug_log("Created process: %X\n", process_id);
+		}
+
+		if (type == process_callback::type::destroy)
+		{
+			debug_log("Destroyed process: %X\n", process_id);
 		}
 	}
 };

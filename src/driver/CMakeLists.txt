@@ -29,6 +29,10 @@ target_link_libraries(driver
     shared
 )
 
+target_compile_options(driver PRIVATE
+    "/Zc:threadSafeInit-"
+)
+
 target_link_options(driver PRIVATE
     "/IGNORE:4210"
 )
