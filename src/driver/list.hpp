@@ -36,9 +36,9 @@ namespace utils
 				return *this->entry_->entry;
 			}
 
-			T& operator->() const
+			T* operator->() const
 			{
-				return *this->entry_->entry;
+				return this->entry_->entry;
 			}
 
 			bool operator==(const iterator& i) const
@@ -94,9 +94,9 @@ namespace utils
 				return *this->entry_->entry;
 			}
 
-			const T& operator->() const
+			const T* operator->() const
 			{
-				return *this->entry_->entry;
+				return this->entry_->entry;
 			}
 
 			bool operator==(const const_iterator& i) const

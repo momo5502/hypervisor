@@ -16,3 +16,6 @@
 #include "nt_ext.hpp"
 #include "new.hpp"
 #include "exception.hpp"
+
+// Not sure if this is good, but fuck it.
+using process_id = uint32_t;

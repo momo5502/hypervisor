@@ -92,7 +92,7 @@ namespace
 		}
 
 		hypervisor->install_ept_hook(request.target_address, buffer.get(), request.source_data_size,
-		                             translation_hints);
+		                             process::get_current_process_id(), request.process_id, translation_hints);
 	}
 
 	void unhook()
@@ -160,7 +160,7 @@ namespace
 			throw std::runtime_error("Failed to copy buffer");
 		}
 
-		thread::kernel_thread t([watch_request_copy, hypervisor, &index, &page_buffer]
+		thread::kernel_thread t([watch_request_copy, &index, &page_buffer]
 		{
 			debug_log("Looking up process: %d\n", watch_request_copy.process_id);
 
@@ -210,7 +210,8 @@ namespace
 		t.join();
 
 		debug_log("Installing watch points...\n");
-		(void)hypervisor->install_ept_code_watch_points(page_buffer.get(), index);
+		(void)hypervisor->install_ept_code_watch_points(page_buffer.get(), index, process::get_current_process_id(),
+		                                                watch_request_copy.process_id);
 		debug_log("Watch points installed\n");
 	}
 
@@ -232,7 +233,7 @@ namespace
 
 	void get_records(const PIRP irp, const PIO_STACK_LOCATION irp_sp)
 	{
-		auto* hypervisor = hypervisor::get_instance();
+		const auto* hypervisor = hypervisor::get_instance();
 		if (!hypervisor)
 		{
 			throw std::runtime_error("Hypervisor not installed");
@@ -251,7 +252,6 @@ namespace
 		irp->IoStatus.Status = STATUS_SUCCESS;
 
 		const auto irp_sp = IoGetCurrentIrpStackLocation(irp);
-
 		if (irp_sp)
 		{
 			const auto ioctr_code = irp_sp->Parameters.DeviceIoControl.IoControlCode;

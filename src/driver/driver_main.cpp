@@ -19,7 +19,7 @@ public:
 			  this->sleep_notification(type);
 		  }),
 		  process_callback_(
-			  [this](const HANDLE parent_id, const HANDLE process_id, const process_callback::type type)
+			  [this](const process_id parent_id, const process_id process_id, const process_callback::type type)
 			  {
 				  this->process_notification(parent_id, process_id, type);
 			  }),
@@ -66,16 +66,11 @@ private:
 		}
 	}
 
-	void process_notification(HANDLE /*parent_id*/, const HANDLE process_id, const process_callback::type type)
+	void process_notification(process_id /*parent_id*/, const process_id process_id, const process_callback::type type)
 	{
-		if (type == process_callback::type::create)
-		{
-			debug_log("Created process: %X\n", process_id);
-		}
-
 		if (type == process_callback::type::destroy)
 		{
-			debug_log("Destroyed process: %X\n", process_id);
+			this->hypervisor_.handle_process_termination(process_id);
 		}
 	}
 };

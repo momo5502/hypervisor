@@ -97,7 +97,7 @@ namespace vmx
 
 		void reset_all_watch_point_pages(utils::list<ept_code_watch_point>& watch_points)
 		{
-			for(const auto& watch_point : watch_points)
+			for (const auto& watch_point : watch_points)
 			{
 				if (watch_point.target_page)
 				{
@@ -121,6 +121,8 @@ namespace vmx
 
 	ept_hook::~ept_hook()
 	{
+		this->target_page->flags = this->original_entry.flags;
+
 		if (mapped_virtual_address)
 		{
 			memory::unmap_physical_memory(mapped_virtual_address, PAGE_SIZE);
@@ -143,10 +145,13 @@ namespace vmx
 		this->disable_all_hooks();
 	}
 
-	void ept::install_page_hook(void* destination, const void* source, const size_t length,
+	void ept::install_page_hook(void* destination, const void* source, const size_t length, const process_id source_pid,
+	                            const process_id target_pid,
 	                            const ept_translation_hint* translation_hint)
 	{
 		auto* hook = this->get_or_create_ept_hook(destination, translation_hint);
+		hook->source_pid = source_pid;
+		hook->target_pid = target_pid;
 
 		const auto page_offset = ADDRMASK_EPT_PML1_OFFSET(reinterpret_cast<uint64_t>(destination));
 		memcpy(hook->fake_page + page_offset, source, length);
@@ -170,7 +175,8 @@ namespace vmx
 	}
 
 	void ept::install_hook(const void* destination, const void* source, const size_t length,
-		const utils::list<ept_translation_hint>& hints)
+	                       const process_id source_pid, const process_id target_pid,
+	                       const utils::list<ept_translation_hint>& hints)
 	{
 		auto current_destination = reinterpret_cast<uint64_t>(destination);
 		auto current_source = reinterpret_cast<uint64_t>(source);
@@ -184,9 +190,8 @@ namespace vmx
 			const auto data_to_write = min(page_remaining, current_length);
 
 
-
 			const ept_translation_hint* relevant_hint = nullptr;
-			for(const auto& hint : hints)
+			for (const auto& hint : hints)
 			{
 				if (hint.virtual_base_address == aligned_destination)
 				{
@@ -196,7 +201,8 @@ namespace vmx
 			}
 
 			this->install_page_hook(reinterpret_cast<void*>(current_destination),
-			                        reinterpret_cast<const void*>(current_source), data_to_write, relevant_hint);
+			                        reinterpret_cast<const void*>(current_source), data_to_write, source_pid,
+			                        target_pid, relevant_hint);
 
 			current_length -= data_to_write;
 			current_destination += data_to_write;
@@ -204,12 +210,9 @@ namespace vmx
 		}
 	}
 
-	void ept::disable_all_hooks() const
+	void ept::disable_all_hooks()
 	{
-		for(auto& hook : this->ept_hooks)
-		{
-			hook.target_page->flags = hook.original_entry.flags;
-		}
+		this->ept_hooks.clear();
 	}
 
 	void ept::handle_violation(guest_context& guest_context)
@@ -333,7 +336,8 @@ namespace vmx
 		}
 	}
 
-	void ept::install_code_watch_point(const uint64_t physical_page)
+	void ept::install_code_watch_point(const uint64_t physical_page, const process_id source_pid,
+	                                   const process_id target_pid)
 	{
 		const auto physical_base_address = reinterpret_cast<uint64_t>(PAGE_ALIGN(physical_page));
 
@@ -343,6 +347,8 @@ namespace vmx
 		}
 
 		auto& watch_point = this->allocate_ept_code_watch_point();
+		watch_point.source_pid = source_pid;
+		watch_point.target_pid = target_pid;
 
 		this->split_large_page(physical_base_address);
 
@@ -420,7 +426,7 @@ namespace vmx
 
 	pml1* ept::find_pml1_table(const uint64_t physical_address)
 	{
-		for(auto& split : this->ept_splits)
+		for (auto& split : this->ept_splits)
 		{
 			if (memory::get_physical_address(&split.pml1[0]) == physical_address)
 			{
@@ -461,7 +467,7 @@ namespace vmx
 
 	ept_code_watch_point* ept::find_ept_code_watch_point(const uint64_t physical_address)
 	{
-		for(auto& watch_point : this->ept_code_watch_points)
+		for (auto& watch_point : this->ept_code_watch_points)
 		{
 			if (watch_point.physical_base_address == physical_address)
 			{
@@ -627,5 +633,38 @@ namespace vmx
 
 		*count = i;
 		return this->access_records;
+	}
+
+	bool ept::handle_process_termination(const process_id process)
+	{
+		bool changed = false;
+
+		for (auto i = this->ept_hooks.begin(); i != this->ept_hooks.end();)
+		{
+			if (i->source_pid == process || i->target_pid == process)
+			{
+				i = this->ept_hooks.erase(i);
+				changed = true;
+			}
+			else
+			{
+				++i;
+			}
+		}
+
+		for (auto i = this->ept_code_watch_points.begin(); i != this->ept_code_watch_points.end();)
+		{
+			if (i->source_pid == process || i->target_pid == process)
+			{
+				i = this->ept_code_watch_points.erase(i);
+				changed = true;
+			}
+			else
+			{
+				++i;
+			}
+		}
+
+		return changed;
 	}
 }

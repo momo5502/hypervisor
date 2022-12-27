@@ -164,11 +164,12 @@ bool hypervisor::is_enabled() const
 }
 
 bool hypervisor::install_ept_hook(const void* destination, const void* source, const size_t length,
+                                  const process_id source_pid, const process_id target_pid,
                                   const utils::list<vmx::ept_translation_hint>& hints)
 {
 	try
 	{
-		this->ept_->install_hook(destination, source, length, hints);
+		this->ept_->install_hook(destination, source, length, source_pid, target_pid, hints);
 	}
 	catch (std::exception& e)
 	{
@@ -181,23 +182,16 @@ bool hypervisor::install_ept_hook(const void* destination, const void* source, c
 		return false;
 	}
 
-	volatile long failures = 0;
-	thread::dispatch_on_all_cores([&]
-	{
-		if (!this->try_install_ept_hook_on_core(destination, source, length, hints))
-		{
-			InterlockedIncrement(&failures);
-		}
-	});
-
-	return failures == 0;
+	this->invalidate_cores();
+	return true;
 }
 
-bool hypervisor::install_ept_code_watch_point(const uint64_t physical_page, const bool invalidate) const
+bool hypervisor::install_ept_code_watch_point(const uint64_t physical_page, const process_id source_pid,
+                                              const process_id target_pid, const bool invalidate) const
 {
 	try
 	{
-		this->ept_->install_code_watch_point(physical_page);
+		this->ept_->install_code_watch_point(physical_page, source_pid, target_pid);
 	}
 	catch (std::exception& e)
 	{
@@ -221,12 +215,13 @@ bool hypervisor::install_ept_code_watch_point(const uint64_t physical_page, cons
 	return true;
 }
 
-bool hypervisor::install_ept_code_watch_points(const uint64_t* physical_pages, const size_t count) const
+bool hypervisor::install_ept_code_watch_points(const uint64_t* physical_pages, const size_t count,
+                                               const process_id source_pid, const process_id target_pid) const
 {
 	bool success = true;
 	for (size_t i = 0; i < count; ++i)
 	{
-		success &= this->install_ept_code_watch_point(physical_pages[i], false);
+		success &= this->install_ept_code_watch_point(physical_pages[i], source_pid, target_pid, false);
 	}
 
 	thread::dispatch_on_all_cores([&]
@@ -243,7 +238,7 @@ void hypervisor::disable_all_ept_hooks() const
 
 	thread::dispatch_on_all_cores([&]
 	{
-		auto* vm_state = this->get_current_vm_state();
+		const auto* vm_state = this->get_current_vm_state();
 		if (!vm_state)
 		{
 			return;
@@ -264,6 +259,17 @@ vmx::ept& hypervisor::get_ept() const
 hypervisor* hypervisor::get_instance()
 {
 	return instance;
+}
+
+void hypervisor::handle_process_termination(const process_id process)
+{
+	if (!this->ept_->handle_process_termination(process))
+	{
+		return;
+	}
+
+	debug_log("Handled termination of %X\n", process);
+	this->invalidate_cores();
 }
 
 void hypervisor::enable()
@@ -430,7 +436,7 @@ vmx::gdt_entry convert_gdt_entry(const uint64_t gdt_base, const uint16_t selecto
 	result.access_rights.granularity = gdt_entry->granularity;
 
 	result.access_rights.reserved1 = 0;
-	result.access_rights.unusable = !gdt_entry->present;
+	result.access_rights.unusable = ~gdt_entry->present;
 
 	return result;
 }
@@ -826,45 +832,16 @@ void hypervisor::free_vm_states()
 	}
 }
 
-bool hypervisor::try_install_ept_hook_on_core(const void* destination, const void* source, const size_t length,
-                                              const utils::list<vmx::ept_translation_hint>& hints)
+void hypervisor::invalidate_cores() const
 {
-	try
+	thread::dispatch_on_all_cores([&]
 	{
-		this->install_ept_hook_on_core(destination, source, length, hints);
-		return true;
-	}
-	catch (std::exception& e)
-	{
-		debug_log("Failed to install ept hook on core %d: %s\n", thread::get_processor_index(), e.what());
-		return false;
-	}
-	catch (...)
-	{
-		debug_log("Failed to install ept hook on core %d.\n", thread::get_processor_index());
-		return false;
-	}
-}
-
-void hypervisor::install_ept_hook_on_core(const void* destination, const void* source, const size_t length,
-                                          const utils::list<vmx::ept_translation_hint>& hints)
-{
-	auto* vm_state = this->get_current_vm_state();
-	if (!vm_state)
-	{
-		throw std::runtime_error("No vm state available");
-	}
-
-	(void)destination;
-	(void)source;
-	(void)length;
-	(void)hints;
-	//vm_state->ept->install_hook(destination, source, length, hints);
-
-	if (this->is_enabled())
-	{
-		vm_state->ept->invalidate();
-	}
+		const auto* vm_state = this->get_current_vm_state();
+		if (vm_state && this->is_enabled())
+		{
+			vm_state->ept->invalidate();
+		}
+	});
 }
 
 vmx::state* hypervisor::get_current_vm_state() const

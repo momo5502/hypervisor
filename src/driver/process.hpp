@@ -19,7 +19,7 @@ namespace process
 		operator PEPROCESS() const;
 
 		bool is_alive() const;
-		uint32_t get_id() const;
+		process_id get_id() const;
 
 		const char* get_image_filename() const;
 
@@ -30,8 +30,13 @@ namespace process
 		void release();
 	};
 
-	process_handle find_process_by_id(uint32_t process_id);
+	process_id process_id_from_handle(HANDLE handle);
+	HANDLE handle_from_process_id(process_id process);
+
+	process_handle find_process_by_id(process_id process);
 	process_handle get_current_process();
+
+	process_id get_current_process_id();
 
 	class scoped_process_attacher
 	{

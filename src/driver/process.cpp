@@ -37,7 +37,7 @@ namespace process
 
 	process_handle::process_handle(const process_handle& obj)
 	{
-		this->operator=(std::move(obj));
+		this->operator=(obj);
 	}
 
 	process_handle& process_handle::operator=(const process_handle& obj)
@@ -80,14 +80,14 @@ namespace process
 		return KeWaitForSingleObject(this->handle_, Executive, KernelMode, FALSE, &zero_time) != STATUS_WAIT_0;
 	}
 
-	uint32_t process_handle::get_id() const
+	process_id process_handle::get_id() const
 	{
 		if (!this->handle_)
 		{
 			return 0;
 		}
 
-		return uint32_t(uint64_t(PsGetProcessId(this->handle_)));
+		return process_id_from_handle(PsGetProcessId(this->handle_));
 	}
 
 	const char* process_handle::get_image_filename() const
@@ -111,21 +111,35 @@ namespace process
 		this->own_ = false;
 	}
 
-	process_handle find_process_by_id(const uint32_t process_id)
+	process_id process_id_from_handle(HANDLE handle)
 	{
-		PEPROCESS process{};
-		const uint64_t process_id_long = process_id;
-		if (PsLookupProcessByProcessId(HANDLE(process_id_long), &process) != STATUS_SUCCESS)
+		return process_id(size_t(handle));
+	}
+
+	HANDLE handle_from_process_id(const process_id process)
+	{
+		return HANDLE(size_t(process));
+	}
+
+	process_handle find_process_by_id(const process_id process)
+	{
+		PEPROCESS process_obj{};
+		if (PsLookupProcessByProcessId(handle_from_process_id(process), &process_obj) != STATUS_SUCCESS)
 		{
 			return {};
 		}
 
-		return process_handle{process, true};
+		return process_handle{process_obj, true};
 	}
 
 	process_handle get_current_process()
 	{
 		return process_handle{PsGetCurrentProcess(), false};
+	}
+
+	process_id get_current_process_id()
+	{
+		return get_current_process().get_id();
 	}
 
 	scoped_process_attacher::scoped_process_attacher(const process_handle& process)

@@ -1,5 +1,6 @@
 #include "std_include.hpp"
 #include "process_callback.hpp"
+#include "process.hpp"
 #include "list.hpp"
 #include "logging.hpp"
 
@@ -13,12 +14,13 @@ namespace process_callback
 			return list;
 		}
 
-		void process_notification_callback(const HANDLE parent_id, const HANDLE process_id, const BOOLEAN create)
+		void process_notification_callback(const HANDLE parent, const HANDLE process, const BOOLEAN create)
 		{
 			const auto& list = get_callback_list();
 			for (const auto& callback : list)
 			{
-				callback(parent_id, process_id, create == FALSE ? type::destroy : type::create);
+				callback(process::process_id_from_handle(parent), process::process_id_from_handle(process),
+				         create == FALSE ? type::destroy : type::create);
 			}
 		}
 

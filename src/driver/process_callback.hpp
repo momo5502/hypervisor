@@ -9,7 +9,7 @@ namespace process_callback
 		destroy,
 	};
 
-	using callback = void(HANDLE parent_id, HANDLE process_id, type type);
+	using callback = void(process_id parent_id, process_id process_id, type type);
 	using callback_function = std::function<callback>;
 
 	void* add(callback_function callback);
