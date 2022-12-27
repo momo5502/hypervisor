@@ -69,7 +69,7 @@ namespace process
 		std::string buffer{};
 		buffer.resize(1024);
 
-		const auto length = GetModuleFileNameExA(process, module, &buffer[0], static_cast<DWORD>(buffer.size()));
+		const auto length = GetModuleFileNameExA(process, module, buffer.data(), static_cast<DWORD>(buffer.size()));
 		if (length > 0)
 		{
 			buffer.resize(length);

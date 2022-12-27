@@ -25,18 +25,21 @@ bool insert_nop(const uint32_t process_id, const uint64_t address, const size_t 
 	return patch_data(process_id, address, buffer.data(), buffer.size());
 }
 
-uint32_t get_process_id()
+std::optional<uint32_t> get_process_id_from_window(const char* class_name, const char* window_name)
 {
-	std::string pid_str{};
-	printf("Please enter the pid: ");
-	std::getline(std::cin, pid_str);
+	const auto window = FindWindowA(class_name, window_name);
+	if (!window)
+	{
+		return {};
+	}
 
-	return atoi(pid_str.data());
+	DWORD process_id{};
+	GetWindowThreadProcessId(window, &process_id);
+	return static_cast<uint32_t>(process_id);
 }
 
-void activate_patches(const uint32_t pid)
+void patch_iw5(const uint32_t pid)
 {
-	// IW5
 	insert_nop(pid, 0x4488A8, 2); // Force calling CG_DrawFriendOrFoeTargetBoxes
 	insert_nop(pid, 0x47F6C7, 2); // Ignore blind-eye perks
 	//insert_nop(driver_device, pid, 0x44894C, 2); // Miniconsole
@@ -55,13 +58,51 @@ void activate_patches(const uint32_t pid)
 	patch_data(pid, 0x443978, data3, sizeof(data3));
 }
 
+void try_patch_iw5()
+{
+	const auto pid = get_process_id_from_window("IW5", nullptr);
+	if (pid)
+	{
+		printf("Patching IW5...\n");
+		patch_iw5(*pid);
+	}
+}
+
+void patch_t6(const uint32_t pid)
+{
+	// Force calling SatellitePingEnemyPlayer
+	insert_nop(pid, 0x7993B1, 2);
+	insert_nop(pid, 0x7993C1, 2);
+
+	// Better vsat updates
+	insert_nop(pid, 0x41D06C, 2); // No time check
+	insert_nop(pid, 0x41D092, 2); // No perk check
+	insert_nop(pid, 0x41D0BB, 2); // No fadeout
+
+	// Enable chopper boxes
+	insert_nop(pid, 0x7B539C, 6); // ShouldDrawPlayerTargetHighlights
+	insert_nop(pid, 0x7B53AE, 6); // Enable chopper boxes
+	insert_nop(pid, 0x7B5461, 6); // Ignore player not visible
+	insert_nop(pid, 0x7B5471, 6); // Ignore blind-eye perks
+}
+
+void try_patch_t6()
+{
+	const auto pid = get_process_id_from_window(nullptr, "Call of Duty" "\xAE" ": Black Ops II - Multiplayer");
+	if (pid)
+	{
+		printf("Patching T6...\n");
+		patch_t6(*pid);
+	}
+}
+
+
 int safe_main(const int /*argc*/, char* /*argv*/[])
 {
-	const auto pid = get_process_id();
-
 	while (true)
 	{
-		activate_patches(pid);
+		try_patch_iw5();
+		try_patch_t6();
 
 		printf("Press any key to exit!\n");
 		if (_getch() != 'r')
