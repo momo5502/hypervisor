@@ -57,5 +57,6 @@ jobs:
           name: ${{matrix.configuration}} binaries
           path: |
             build/${{matrix.configuration}}/artifacts/*.exe
+            build/${{matrix.configuration}}/artifacts/*.dll
             build/${{matrix.configuration}}/artifacts/*.pdb
             build/${{matrix.configuration}}/artifacts/*.sys
