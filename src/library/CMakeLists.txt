@@ -15,6 +15,10 @@ target_link_libraries(library PRIVATE
 	driver_file
 )
 
+target_include_directories(library PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
 set_source_files_properties(resource.rc PROPERTIES LANGUAGE RC)
 target_sources(library PRIVATE
 	resource.rc

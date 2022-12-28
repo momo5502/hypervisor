@@ -1,63 +1,64 @@
 #include "std_include.hpp"
 
-#include <iostream>
-#include <conio.h>
-#include <set>
-
 #include "driver.hpp"
 #include "driver_device.hpp"
 #include <driver_file.h>
 #include <irp_data.hpp>
 
-#include "resource.hpp"
 #include "utils/io.hpp"
 
-void patch_data(const driver_device& driver_device, const uint32_t pid, const uint64_t address, const uint8_t* buffer,
-                const size_t length)
+#define DLL_IMPORT __declspec(dllexport)
+#include <hyperhook.h>
+
+namespace
 {
-	hook_request hook_request{};
-	hook_request.process_id = pid;
-	hook_request.target_address = reinterpret_cast<void*>(address);
-
-	hook_request.source_data = buffer;
-	hook_request.source_data_size = length;
-
-	driver_device::data input{};
-	input.assign(reinterpret_cast<uint8_t*>(&hook_request),
-	             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
-
-	(void)driver_device.send(HOOK_DRV_IOCTL, input);
-}
-
-driver_device create_driver_device()
-{
-	return driver_device{R"(\\.\HyperHook)"};
-}
-
-driver create_driver()
-{
-	return driver{std::filesystem::absolute(DRIVER_NAME), "HyperHook"};
-}
-
-driver_device& get_driver_device()
-{
-	static driver hypervisor{};
-	static driver_device device{};
-
-	if (!hypervisor)
+	void patch_data(const driver_device& driver_device, const uint32_t pid, const uint64_t address,
+	                const uint8_t* buffer,
+	                const size_t length)
 	{
-		hypervisor = create_driver();
+		hook_request hook_request{};
+		hook_request.process_id = pid;
+		hook_request.target_address = reinterpret_cast<void*>(address);
+
+		hook_request.source_data = buffer;
+		hook_request.source_data_size = length;
+
+		driver_device::data input{};
+		input.assign(reinterpret_cast<uint8_t*>(&hook_request),
+		             reinterpret_cast<uint8_t*>(&hook_request) + sizeof(hook_request));
+
+		(void)driver_device.send(HOOK_DRV_IOCTL, input);
 	}
 
-	if (!device)
+	driver_device create_driver_device()
 	{
-		device = create_driver_device();
+		return driver_device{R"(\\.\HyperHook)"};
 	}
 
-	return device;
+	driver create_driver()
+	{
+		return driver{std::filesystem::absolute(DRIVER_NAME), "HyperHook"};
+	}
+
+	driver_device& get_driver_device()
+	{
+		static driver hypervisor{};
+		static driver_device device{};
+
+		if (!hypervisor)
+		{
+			hypervisor = create_driver();
+		}
+
+		if (!device)
+		{
+			device = create_driver_device();
+		}
+
+		return device;
+	}
 }
 
-extern "C" __declspec(dllexport)
 int hyperhook_initialize()
 {
 	try
@@ -76,8 +77,6 @@ int hyperhook_initialize()
 	return 0;
 }
 
-
-extern "C" __declspec(dllexport)
 int hyperhook_write(const unsigned int process_id, const unsigned long long address, const void* data,
                     const unsigned long long size)
 {

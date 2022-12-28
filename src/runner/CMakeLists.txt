@@ -6,10 +6,6 @@ add_executable(runner #WIN32
 	${runner_headers}
 )
 
-target_precompile_headers(runner PRIVATE
-	std_include.hpp
-)
-
 set_property(TARGET runner APPEND_STRING PROPERTY LINK_FLAGS " /MANIFESTUAC:\"level='requireAdministrator'\"")
 
 target_link_libraries(runner PRIVATE

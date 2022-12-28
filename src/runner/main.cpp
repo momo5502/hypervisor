@@ -1,17 +1,13 @@
-#include "std_include.hpp"
-
-#include <iostream>
+#include <vector>
 #include <conio.h>
-#include <set>
+#include <optional>
+#include <stdexcept>
 
-#include "resource.hpp"
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
 
-extern "C" __declspec(dllimport)
-int hyperhook_initialize();
+#include <hyperhook.h>
 
-extern "C" __declspec(dllimport)
-int hyperhook_write(unsigned int process_id, unsigned long long address, const void* data,
-                    unsigned long long size);
 
 bool patch_data(const uint32_t process_id, const uint64_t address, const void* buffer,
                 const size_t length)
