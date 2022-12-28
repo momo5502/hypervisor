@@ -14,6 +14,11 @@ public:
 	driver(driver&& obj) noexcept = default;;
 	driver& operator=(driver&& obj) noexcept = default;
 
+	operator bool() const
+	{
+		return this->service_;
+	}
+
 private:
 	service_handle manager_{};
 	service_handle service_{};

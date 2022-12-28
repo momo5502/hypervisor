@@ -44,18 +44,13 @@ driver_device& get_driver_device()
 	static driver hypervisor{};
 	static driver_device device{};
 
-	if (device)
-	{
-		return device;
-	}
-
-	try
-	{
-		device = create_driver_device();
-	}
-	catch (...)
+	if (!hypervisor)
 	{
 		hypervisor = create_driver();
+	}
+
+	if (!device)
+	{
 		device = create_driver_device();
 	}
 
@@ -63,9 +58,34 @@ driver_device& get_driver_device()
 }
 
 extern "C" __declspec(dllexport)
+int hyperhook_initialize()
+{
+	try
+	{
+		const auto& device = get_driver_device();
+		if (device)
+		{
+			return 1;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		printf("%s\n", e.what());
+	}
+
+	return 0;
+}
+
+
+extern "C" __declspec(dllexport)
 int hyperhook_write(const unsigned int process_id, const unsigned long long address, const void* data,
                     const unsigned long long size)
 {
+	if (hyperhook_initialize() == 0)
+	{
+		return 0;
+	}
+
 	try
 	{
 		const auto& device = get_driver_device();

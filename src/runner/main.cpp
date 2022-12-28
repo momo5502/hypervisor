@@ -7,6 +7,9 @@
 #include "resource.hpp"
 
 extern "C" __declspec(dllimport)
+int hyperhook_initialize();
+
+extern "C" __declspec(dllimport)
 int hyperhook_write(unsigned int process_id, unsigned long long address, const void* data,
                     unsigned long long size);
 
@@ -99,6 +102,11 @@ void try_patch_t6()
 
 int safe_main(const int /*argc*/, char* /*argv*/[])
 {
+	if (hyperhook_initialize() == 0)
+	{
+		throw std::runtime_error("Failed to initialize HyperHook");
+	}
+
 	while (true)
 	{
 		try_patch_iw5();
