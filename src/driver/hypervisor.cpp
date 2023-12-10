@@ -742,9 +742,14 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	debug_log("Enabling hypervisor on core %d\n", thread::get_processor_index());
 	auto* vm_state = this->get_current_vm_state();
 
-	if (!is_virtualization_supported())
+	if (!is_vmx_supported())
 	{
 		throw std::runtime_error("VMX not supported on this core");
+	}
+
+	if (!is_vmx_available())
+	{
+		throw std::runtime_error("VMX not available on this core");
 	}
 
 	vm_state->launch_context.launched = false;
