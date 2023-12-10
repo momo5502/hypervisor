@@ -11,7 +11,7 @@ public:
 	driver(const driver&) = delete;
 	driver& operator=(const driver&) = delete;
 
-	driver(driver&& obj) noexcept = default;;
+	driver(driver&& obj) noexcept = default;
 	driver& operator=(driver&& obj) noexcept = default;
 
 	operator bool() const

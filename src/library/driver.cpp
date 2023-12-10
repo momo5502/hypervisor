@@ -31,7 +31,10 @@ driver::driver(const std::filesystem::path& driver_file, const std::string& serv
 		throw std::runtime_error("Unable to create service");
 	}
 
-	StartServiceA(this->service_, 0, nullptr);
+	if(!StartServiceA(this->service_, 0, nullptr))
+	{
+		printf("Failed to start service: %d\n", GetLastError());
+	}
 }
 
 driver::~driver()
