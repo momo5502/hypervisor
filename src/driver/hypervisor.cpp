@@ -30,11 +30,6 @@ namespace
 		return feature_control.lock_bit && feature_control.enable_vmx_outside_smx;
 	}
 
-	bool is_virtualization_supported()
-	{
-		return is_vmx_supported() && is_vmx_available();
-	}
-
 	bool is_hypervisor_present()
 	{
 		cpuid_eax_01 data{};
@@ -129,9 +124,14 @@ hypervisor::hypervisor()
 
 	instance = this;
 
-	if (!is_virtualization_supported())
+	if (!is_vmx_supported())
 	{
 		throw std::runtime_error("VMX not supported on this machine");
+	}
+
+	if (!is_vmx_available())
+	{
+		throw std::runtime_error("VMX not available on this machine");
 	}
 
 	debug_log("VMX supported!\n");

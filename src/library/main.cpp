@@ -37,7 +37,7 @@ namespace
 
 	driver create_driver()
 	{
-		return driver{std::filesystem::absolute(DRIVER_NAME), "HyperHook"};
+		return driver{std::filesystem::absolute(DRIVER_NAME), "HyperHookDriver"};
 	}
 
 	driver_device& get_driver_device()
