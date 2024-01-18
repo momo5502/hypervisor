@@ -7,6 +7,7 @@
 #include "memory.hpp"
 #include "thread.hpp"
 #include "assembly.hpp"
+#include "process.hpp"
 #include "string.hpp"
 
 #define DPL_USER   3
@@ -62,7 +63,7 @@ namespace
 	// See: https://github.com/ionescu007/SimpleVisor/issues/48
 #define capture_cpu_context(launch_context) \
 	      cpature_special_registers((launch_context).special_registers);\
-	      RtlCaptureContext(&(launch_context).context_frame);
+	      RtlCaptureContext(&(launch_context).context_frame)
 
 	void restore_descriptor_tables(vmx::launch_context& launch_context)
 	{
@@ -454,13 +455,76 @@ void vmx_handle_invd()
 	__wbinvd();
 }
 
+bool log_other_call(uintptr_t guest_rip, bool rdtsc)
+{
+	if (guest_rip < 0x140000000 || guest_rip > 0x15BC27000)
+	{
+		return false;
+	}
+
+	const auto is_privileged = (read_vmx(VMCS_GUEST_CS_SELECTOR) &
+		SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM;
+	if(is_privileged)
+	{
+		return false;
+	}
+
+	const auto proc = process::get_current_process();
+
+	const auto filename = proc.get_image_filename();
+	if (!string::equal(filename, "HogwartsLegacy"))
+	{
+		return false;
+	}
+
+
+	debug_log("%s (%s): %llX\n", rdtsc ? "RDTSC" : "RDTSCP",
+	          filename,
+	          guest_rip);
+
+	return true;
+}
+
+bool log_cpuid_call(uintptr_t guest_rip, uintptr_t rax, uintptr_t rcx, const INT32* cpu_info)
+{
+	if (guest_rip < 0x140000000 || guest_rip > 0x15BC27000)
+	{
+		return false;
+	}
+
+	const auto is_privileged = (read_vmx(VMCS_GUEST_CS_SELECTOR) &
+		SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM;
+	if (is_privileged)
+	{
+		return false;
+	}
+
+	const auto proc = process::get_current_process();
+
+	const auto filename = proc.get_image_filename();
+	if (!string::equal(filename, "HogwartsLegacy"))
+	{
+		return false;
+	}
+
+
+	debug_log("CPUID call (%s): %llX - (EAX: %08X - ECX: %08X) - (EAX: %08X - EBX: %08X - ECX: %08X - EDX: %08X)\n",
+	          filename,
+	          guest_rip, rax, rcx, cpu_info[0], cpu_info[1], cpu_info[2], cpu_info[3]);
+
+	return true;
+}
+
 void vmx_handle_cpuid(vmx::guest_context& guest_context)
 {
-	INT32 cpu_info[4];
+	INT32 cpu_info[4]{0, 0, 0, 0};
+
+	const auto is_privileged = (read_vmx(VMCS_GUEST_CS_SELECTOR) &
+		SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM;
 
 	if (guest_context.vp_regs->Rax == 0x41414141 &&
 		guest_context.vp_regs->Rcx == 0x42424242 &&
-		(read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM)
+		is_privileged)
 	{
 		guest_context.exit_vm = true;
 		return;
@@ -469,6 +533,15 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 	__cpuidex(cpu_info, static_cast<int32_t>(guest_context.vp_regs->Rax),
 	          static_cast<int32_t>(guest_context.vp_regs->Rcx));
 
+	bool should_zero = false;
+	if (!is_privileged)
+	{
+		should_zero = log_cpuid_call(guest_context.guest_rip, guest_context.vp_regs->Rax, guest_context.vp_regs->Rcx,
+		                             cpu_info);
+	}
+
+	const auto _rax = guest_context.vp_regs->Rax;
+
 	if (guest_context.vp_regs->Rax == 1)
 	{
 		cpu_info[2] |= HYPERV_HYPERVISOR_PRESENT_BIT;
@@ -476,6 +549,97 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 	else if (guest_context.vp_regs->Rax == HYPERV_CPUID_INTERFACE)
 	{
 		cpu_info[0] = 'momo';
+	}
+
+	if (should_zero)
+	{
+		// [MOMO] CPUID call(HogwartsLegacy) : 140D2451B - (EAX : 80000006 - ECX : 00000000) - (EAX : 00000000 - EBX : 00000000 - ECX : 01006040 - EDX : 00000000)
+		// [MOMO] CPUID call (HogwartsLegacy): 1405F4817 - (EAX: 00000004 - ECX: 00000000) - (EAX: 1C004121 - EBX: 01C0003F - ECX: 0000003F - EDX: 00000000)
+
+		// not sure if necessary
+		if (_rax == 0)
+		{
+			cpu_info[0] = 0x00000016;
+			cpu_info[1] = 0x756E6547;
+			cpu_info[2] = 0x6C65746E;
+			cpu_info[3] = 0x49656E69;
+		}
+		else if (_rax == 4)
+		{
+			cpu_info[0] = 0x00000000;
+			cpu_info[1] = 0x01C0003F;
+			cpu_info[2] = 0x0000003F;
+			cpu_info[3] = 0x00000000;
+		}
+		else if (_rax == 7)
+		{
+			cpu_info[0] = 0x1C004121;
+			cpu_info[1] = 0x029C6FBF;
+			cpu_info[2] = 0x40000000;
+			cpu_info[3] = (INT32)0xBC002E00;
+		}
+		else if (_rax == 0x80000000)
+		{
+			cpu_info[0] = (INT32)0x80000008;
+			cpu_info[1] = 0x00000000;
+			cpu_info[2] = 0x00000000;
+			cpu_info[3] = 0x00000000;
+		}
+		else if (_rax == 0x80000006)
+		{
+			cpu_info[0] = 0x00000000;
+			cpu_info[1] = 0x00000000;
+			cpu_info[2] = 0x01006040;
+			cpu_info[3] = 0x00000000;
+		}
+
+
+		// absolutely necessary v
+		else if (_rax == 1)
+		{
+			cpu_info[0] = 0x000906EA;
+			cpu_info[1] = 0x04100800;
+			cpu_info[2] = 0x7FFAFBFF;
+			cpu_info[3] = (INT32)0xBFEBFBFF;
+		}
+		else if (_rax == 0x80000002)
+		{
+			cpu_info[0] = 0x65746E49;
+			cpu_info[1] = 0x2952286C;
+			cpu_info[2] = 0x726F4320;
+			cpu_info[3] = 0x4D542865;
+		}
+		else if (_rax == 0x80000003)
+		{
+			cpu_info[0] = 0x37692029;
+			cpu_info[1] = 0x3538382D;
+			cpu_info[2] = 0x43204830;
+			cpu_info[3] = 0x40205550;
+		}
+		else if (_rax == 0x80000004)
+		{
+			cpu_info[0] = 0x362E3220;
+			cpu_info[1] = 0x7A484730;
+			cpu_info[2] = 0x00000000;
+			cpu_info[3] = 0x00000000;
+		}
+		else
+		{
+			debug_log("Not zeroing!\n");
+		}
+
+		/*	should_zero &= _rax == 1
+				|| _rax == 0x80000002
+				|| _rax == 0x80000003
+				|| _rax == 0x80000004;
+				*
+			if (should_zero)
+			{
+				cpu_info[0] = 0;
+				cpu_info[1] = 0;
+				cpu_info[2] = 0;
+				cpu_info[3] = 0;
+			}*/
 	}
 
 	guest_context.vp_regs->Rax = cpu_info[0];
@@ -527,9 +691,37 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, const vmx::state& v
 	case VMX_EXIT_REASON_EPT_MISCONFIGURATION:
 		vm_state.ept->handle_misconfiguration(guest_context);
 		break;
-	//case VMX_EXIT_REASON_EXECUTE_RDTSC:
-	//	break;
+	case VMX_EXIT_REASON_EXECUTE_RDTSC:
+	{
+		//debug_log("VM exit: VMX_EXIT_REASON_EXECUTE_RDTSC\n");
+
+		ULARGE_INTEGER tsc{};
+
+		tsc.QuadPart = __rdtsc();
+
+		guest_context.vp_regs->Rax = tsc.LowPart;
+		guest_context.vp_regs->Rdx = tsc.HighPart;
+
+		log_other_call(guest_context.guest_rip, true);
+		break;
+	}
+	case VMX_EXIT_REASON_EXECUTE_RDTSCP:
+	{
+		//debug_log("VM exit: VMX_EXIT_REASON_EXECUTE_RDTSCP\n");
+
+		uint32_t _rcx{};
+		ULARGE_INTEGER tsc{};
+		tsc.QuadPart = __rdtscp(&_rcx);
+
+		guest_context.vp_regs->Rax = tsc.LowPart;
+		guest_context.vp_regs->Rdx = tsc.HighPart;
+		guest_context.vp_regs->Rcx = _rcx;
+
+		log_other_call(guest_context.guest_rip, false);
+		break;
+	}
 	default:
+		//debug_log("Unknown VM exit: %X\n",(uint32_t) guest_context.exit_reason);
 		break;
 	}
 
@@ -606,6 +798,7 @@ void setup_vmcs_for_cpu(vmx::state& vm_state)
 	ia32_vmx_procbased_ctls_register procbased_ctls_register{};
 	procbased_ctls_register.activate_secondary_controls = 1;
 	procbased_ctls_register.use_msr_bitmaps = 1;
+	procbased_ctls_register.rdtsc_exiting = 0;
 
 	__vmx_vmwrite(VMCS_CTRL_PROCESSOR_BASED_VM_EXECUTION_CONTROLS,
 	              adjust_msr(launch_context->msr_data[14],
