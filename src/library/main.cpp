@@ -47,7 +47,10 @@ namespace
 
 		if (!hypervisor)
 		{
-			hypervisor = create_driver();
+			try
+			{
+				hypervisor = create_driver();
+			}catch(...){}
 		}
 
 		if (!device)

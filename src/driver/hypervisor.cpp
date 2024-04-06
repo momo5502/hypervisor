@@ -512,6 +512,8 @@ bool log_cpuid_call(uintptr_t guest_rip, uintptr_t rax, uintptr_t rcx, const INT
 	          filename,
 	          guest_rip, rax, rcx, cpu_info[0], cpu_info[1], cpu_info[2], cpu_info[3]);
 
+	//debug_log("OVERHEAD\n");
+
 	return true;
 }
 
@@ -556,36 +558,38 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 		// [MOMO] CPUID call(HogwartsLegacy) : 140D2451B - (EAX : 80000006 - ECX : 00000000) - (EAX : 00000000 - EBX : 00000000 - ECX : 01006040 - EDX : 00000000)
 		// [MOMO] CPUID call (HogwartsLegacy): 1405F4817 - (EAX: 00000004 - ECX: 00000000) - (EAX: 1C004121 - EBX: 01C0003F - ECX: 0000003F - EDX: 00000000)
 
+		bool allow_all = true;
+
 		// not sure if necessary
-		if (_rax == 0)
+		if (_rax == 0 && allow_all)
 		{
 			cpu_info[0] = 0x00000016;
 			cpu_info[1] = 0x756E6547;
 			cpu_info[2] = 0x6C65746E;
 			cpu_info[3] = 0x49656E69;
 		}
-		else if (_rax == 4)
+		else if (_rax == 4 && allow_all)
 		{
 			cpu_info[0] = 0x00000000;
 			cpu_info[1] = 0x01C0003F;
 			cpu_info[2] = 0x0000003F;
 			cpu_info[3] = 0x00000000;
 		}
-		else if (_rax == 7)
+		else if (_rax == 7 && allow_all)
 		{
 			cpu_info[0] = 0x1C004121;
 			cpu_info[1] = 0x029C6FBF;
 			cpu_info[2] = 0x40000000;
 			cpu_info[3] = (INT32)0xBC002E00;
 		}
-		else if (_rax == 0x80000000)
+		else if (_rax == 0x80000000 && allow_all)
 		{
 			cpu_info[0] = (INT32)0x80000008;
 			cpu_info[1] = 0x00000000;
 			cpu_info[2] = 0x00000000;
 			cpu_info[3] = 0x00000000;
 		}
-		else if (_rax == 0x80000006)
+		else if (_rax == 0x80000006 && allow_all)
 		{
 			cpu_info[0] = 0x00000000;
 			cpu_info[1] = 0x00000000;
@@ -595,12 +599,12 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 
 
 		// absolutely necessary v
-		else if (_rax == 1)
+		else if (_rax == 1 && allow_all)
 		{
 			cpu_info[0] = 0x000906EA;
 			cpu_info[1] = 0x04100800;
-			cpu_info[2] = 0x7FFAFBFF;
-			cpu_info[3] = (INT32)0xBFEBFBFF;
+			cpu_info[2] = 0x7FFAFBFF & (~0xC000000);
+			cpu_info[3] = (INT32)0xBFEBFBFF ;
 		}
 		else if (_rax == 0x80000002)
 		{
@@ -623,8 +627,12 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 			cpu_info[2] = 0x00000000;
 			cpu_info[3] = 0x00000000;
 		}
-		else
+		else if(false)
 		{
+			cpu_info[0] = 0;
+			cpu_info[1] = 0;
+			cpu_info[2] = 0;
+			cpu_info[3] = 0;
 			debug_log("Not zeroing!\n");
 		}
 
