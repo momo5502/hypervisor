@@ -17,8 +17,13 @@ namespace std
 	class exception
 	{
 	public:
+		exception() = default;
+
 		exception& operator=(const exception& obj) noexcept = default;
 		exception& operator=(exception&& obj) noexcept = default;
+
+		exception(const exception& obj) noexcept = default;
+		exception(exception&& obj) noexcept = default;
 
 		virtual ~exception() = default;
 		virtual const char* what() const noexcept = 0;
