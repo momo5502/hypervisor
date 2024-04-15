@@ -87,7 +87,12 @@ void patch_t6(const uint32_t pid)
 
 void try_patch_t6()
 {
-	const auto pid = get_process_id_from_window(nullptr, "Call of Duty" "\xAE" ": Black Ops II - Multiplayer");
+	auto pid = get_process_id_from_window(nullptr, "Call of Duty" "\xAE" ": Black Ops II - Multiplayer");
+	if (!pid)
+	{
+		pid = get_process_id_from_window("CoDBlackOps", nullptr);
+	}
+
 	if (pid)
 	{
 		printf("Patching T6...\n");
