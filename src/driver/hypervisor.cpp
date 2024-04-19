@@ -561,7 +561,7 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 		bool allow_all = true;
 
 		// not sure if necessary
-		if (_rax == 0 && allow_all)
+		/*if (_rax == 0 && allow_all)
 		{
 			cpu_info[0] = 0x00000016;
 			cpu_info[1] = 0x756E6547;
@@ -596,14 +596,18 @@ void vmx_handle_cpuid(vmx::guest_context& guest_context)
 			cpu_info[2] = 0x01006040;
 			cpu_info[3] = 0x00000000;
 		}
-
+		
 
 		// absolutely necessary v
-		else if (_rax == 1 && allow_all)
+		else*/ if (_rax == 1 && allow_all)
 		{
-			cpu_info[0] = 0x000906EA;
-			cpu_info[1] = 0x04100800;
-			cpu_info[2] = 0x7FFAFBFF & (~0xC000000);
+			cpu_info[0] = 0x000306A9;
+			cpu_info[1] = 0x02100800;
+			cpu_info[2] = 0x7FBAE3FF & (~0xC000000);
+			//cpu_info[0] = 0x000906EA;
+			//cpu_info[1] = 0x04100800;
+			//cpu_info[2] = 0x7FFAFBFF & (~0xC000000);
+
 			cpu_info[3] = (INT32)0xBFEBFBFF ;
 		}
 		else if (_rax == 0x80000002)
