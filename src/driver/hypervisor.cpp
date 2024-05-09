@@ -46,8 +46,8 @@ namespace
 
 	void enable_syscall_hooking()
 	{
-		int32_t cpu_info[4]{0};
-		__cpuidex(cpu_info, 0x41414141, 0x42424243);
+		//int32_t cpu_info[4]{0};
+		//__cpuidex(cpu_info, 0x41414141, 0x42424243);
 	}
 
 	void cpature_special_registers(vmx::special_registers& special_registers)
@@ -460,6 +460,12 @@ void vmx_handle_invd()
 	__wbinvd();
 }
 
+void vmx_handle_exception(vmx::guest_context& guest_context)
+{
+	(void)guest_context;
+	read_vmx(VMCS_VMEXIT_INTERRUPTION_INFORMATION);
+	debug_log("MABEA SYSCALL :D\n");
+}
 
 bool is_system()
 {
@@ -586,6 +592,9 @@ void vmx_dispatch_vm_exit(vmx::guest_context& guest_context, const vmx::state& v
 		break;
 	case VMX_EXIT_REASON_EPT_MISCONFIGURATION:
 		vm_state.ept->handle_misconfiguration(guest_context);
+		break;
+	case VMX_EXIT_REASON_EXCEPTION_OR_NMI:
+		vmx_handle_exception(guest_context);
 		break;
 	//case VMX_EXIT_REASON_EXECUTE_RDTSC:
 	//	break;
