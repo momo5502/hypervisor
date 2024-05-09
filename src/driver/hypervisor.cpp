@@ -44,6 +44,12 @@ namespace
 		return cpuid_data[0] == 'momo';
 	}
 
+	void enable_syscall_hooking()
+	{
+		int32_t cpu_info[4]{0};
+		__cpuidex(cpu_info, 0x41414141, 0x42424243);
+	}
+
 	void cpature_special_registers(vmx::special_registers& special_registers)
 	{
 		special_registers.cr0 = __readcr0();
@@ -454,13 +460,67 @@ void vmx_handle_invd()
 	__wbinvd();
 }
 
+
+bool is_system()
+{
+	return (read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM;
+}
+
+void set_exception_bit(const exception_vector bit)
+{
+	auto exception_bitmap = read_vmx(VMCS_CTRL_EXCEPTION_BITMAP);
+	exception_bitmap |= 1ULL << bit;
+	__vmx_vmwrite(VMCS_CTRL_EXCEPTION_BITMAP, exception_bitmap);
+}
+
+void vmx_enable_syscall_hooks()
+{
+	ULARGE_INTEGER msr{};
+	ia32_efer_register efer_register{};
+	ia32_vmx_basic_register vmx_basic_register{};
+	ia32_vmx_exit_ctls_register exit_ctls_register{};
+	ia32_vmx_entry_ctls_register entry_ctls_register{};
+
+	vmx_basic_register.flags = __readmsr(IA32_VMX_BASIC);
+	exit_ctls_register.flags = read_vmx(VMCS_CTRL_VMEXIT_CONTROLS);
+	entry_ctls_register.flags = read_vmx(VMCS_CTRL_VMENTRY_CONTROLS);
+
+	efer_register.flags = __readmsr(IA32_EFER);
+
+	// ---------------------------------------
+
+	efer_register.syscall_enable = false;
+	exit_ctls_register.save_ia32_efer = true;
+	entry_ctls_register.load_ia32_efer = true;
+
+	// ---------------------------------------
+
+	msr.QuadPart = __readmsr(vmx_basic_register.vmx_controls ? IA32_VMX_TRUE_ENTRY_CTLS : IA32_VMX_ENTRY_CTLS);
+	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS, adjust_msr(msr, entry_ctls_register.flags));
+
+	msr.QuadPart = __readmsr(vmx_basic_register.vmx_controls ? IA32_VMX_TRUE_EXIT_CTLS : IA32_VMX_EXIT_CTLS);
+	__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS, adjust_msr(msr, exit_ctls_register.flags));
+
+	__vmx_vmwrite(VMCS_GUEST_EFER, efer_register.flags);
+
+	set_exception_bit(invalid_opcode);
+}
+
 void vmx_handle_cpuid(vmx::guest_context& guest_context)
 {
+	if (guest_context.vp_regs->Rax == 0x41414141 &&
+		guest_context.vp_regs->Rcx == 0x42424243 &&
+		is_system())
+	{
+		vmx_enable_syscall_hooks();
+		return;
+	}
+
 	INT32 cpu_info[4];
 
 	if (guest_context.vp_regs->Rax == 0x41414141 &&
 		guest_context.vp_regs->Rcx == 0x42424242 &&
-		(read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM)
+		is_system())
 	{
 		guest_context.exit_vm = true;
 		return;
@@ -767,6 +827,8 @@ void hypervisor::enable_core(const uint64_t system_directory_table_base)
 	{
 		throw std::runtime_error("Hypervisor is not present");
 	}
+
+	enable_syscall_hooking();
 }
 
 void hypervisor::disable_core()
