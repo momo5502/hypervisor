@@ -7,6 +7,7 @@
 #include "memory.hpp"
 #include "thread.hpp"
 #include "assembly.hpp"
+#include "process.hpp"
 #include "string.hpp"
 
 #define DPL_USER   3
@@ -673,6 +674,14 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 			return;
 		}
 
+		const auto proc = process::get_current_process();
+
+		const auto filename = proc.get_image_filename();
+		if (string::equal(filename, "explorer"))
+		{
+			debug_log("Explorer SYSCALL: %d\n", guest_context.vp_regs->Rcx);
+		}
+
 		if (state == syscall_state::is_syscall)
 		{
 			rflags rflags{};
@@ -764,8 +773,6 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 			__vmx_vmwrite(VMCS_CTRL_VMENTRY_EXCEPTION_ERROR_CODE, read_vmx(VMCS_VMEXIT_INTERRUPTION_ERROR_CODE));
 		}
 	}
-
-	//debug_log("MABEA SYSCALL :D\n");
 }
 
 bool is_system()
