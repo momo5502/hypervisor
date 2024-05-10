@@ -7,16 +7,6 @@
 #include "memory.hpp"
 #include "vmx.hpp"
 
-#define MTRR_PAGE_SIZE 4096
-#define MTRR_PAGE_MASK (~(MTRR_PAGE_SIZE-1))
-
-#define ADDRMASK_EPT_PML1_OFFSET(_VAR_) ((_VAR_) & 0xFFFULL)
-
-#define ADDRMASK_EPT_PML1_INDEX(_VAR_) (((_VAR_) & 0x1FF000ULL) >> 12)
-#define ADDRMASK_EPT_PML2_INDEX(_VAR_) (((_VAR_) & 0x3FE00000ULL) >> 21)
-#define ADDRMASK_EPT_PML3_INDEX(_VAR_) (((_VAR_) & 0x7FC0000000ULL) >> 30)
-#define ADDRMASK_EPT_PML4_INDEX(_VAR_) (((_VAR_) & 0xFF8000000000ULL) >> 39)
-
 namespace vmx
 {
 	namespace
@@ -301,7 +291,7 @@ namespace vmx
 
 		// --------------------------
 
-		epdpte temp_epdpte;
+		epdpte temp_epdpte{};
 		temp_epdpte.flags = 0;
 		temp_epdpte.read_access = 1;
 		temp_epdpte.write_access = 1;

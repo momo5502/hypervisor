@@ -15,10 +15,10 @@
 typedef struct _EPROCESS
 {
 	DISPATCHER_HEADER Header;
-	LIST_ENTRY        ProfileListHead;
-	ULONG_PTR         DirectoryTableBase;
-	UCHAR             Data[1];
-} EPROCESS, * PEPROCESS;
+	LIST_ENTRY ProfileListHead;
+	ULONG_PTR DirectoryTableBase;
+	UCHAR Data[1];
+} EPROCESS, *PEPROCESS;
 
 namespace
 {
@@ -485,10 +485,24 @@ void inject_interuption(const interruption_type type, const exception_vector vec
 	}
 }
 
-void inject_invalid_opcode(vmx::guest_context& guest_context)
+void inject_invalid_opcode()
 {
 	inject_interuption(hardware_exception, invalid_opcode, false, 0);
-	guest_context.increment_rip = false;
+}
+
+void inject_page_fault(const uint64_t page_fault_address)
+{
+	__writecr2(page_fault_address);
+
+	page_fault_exception error_code{};
+	error_code.flags = 0;
+
+	inject_interuption(hardware_exception, page_fault, true, error_code.flags);
+}
+
+void inject_page_fault(const void* page_fault_address)
+{
+	inject_page_fault(reinterpret_cast<uint64_t>(page_fault_address));
 }
 
 cr3 get_current_process_cr3()
@@ -517,41 +531,118 @@ enum class syscall_state
 {
 	is_sysret,
 	is_syscall,
+	page_fault,
 	none,
 };
 
+class scoped_cr3_switch
+{
+public:
+	scoped_cr3_switch()
+	{
+		original_cr3_.flags = __readcr3();
+	}
+
+	scoped_cr3_switch(const cr3 new_cr3)
+		: scoped_cr3_switch()
+	{
+		this->set_cr3(new_cr3);
+	}
+
+	scoped_cr3_switch(const scoped_cr3_switch&) = delete;
+	scoped_cr3_switch& operator=(const scoped_cr3_switch&) = delete;
+
+	scoped_cr3_switch(scoped_cr3_switch&&) = delete;
+	scoped_cr3_switch& operator=(scoped_cr3_switch&&) = delete;
+
+	~scoped_cr3_switch()
+	{
+		__writecr3(original_cr3_.flags);
+	}
+
+	void set_cr3(const cr3 new_cr3)
+	{
+		this->must_restore_ = true;
+		__writecr3(new_cr3.flags);
+	}
+
+private:
+	bool must_restore_{false};
+	cr3 original_cr3_{};
+};
+
+template <size_t Length>
+bool read_data_or_page_fault(uint8_t (&array)[Length], const uint8_t* base)
+{
+	for (size_t offset = 0; offset < Length;)
+	{
+		auto* current_base = base + offset;
+		auto* current_destination = array + offset;
+		auto read_length = Length - offset;
+
+		const auto* page_start = static_cast<uint8_t*>(PAGE_ALIGN(current_base));
+		const auto* next_page = page_start + PAGE_SIZE;
+
+		if (current_base + read_length > next_page)
+		{
+			read_length = next_page - current_base;
+		}
+
+		offset += read_length;
+
+		const auto physical_base = memory::get_physical_address(const_cast<uint8_t*>(current_base));
+
+		if (!physical_base)
+		{
+			inject_page_fault(current_base);
+			return false;
+		}
+
+		if (!memory::read_physical_memory(current_destination, physical_base, read_length))
+		{
+			// Not sure if we can recover from that :(
+			return false;
+		}
+	}
+
+	return true;
+}
+
 syscall_state get_syscall_state(const vmx::guest_context& guest_context)
 {
-	cr3 orignal_cr3{};
-	orignal_cr3.flags = __readcr3();
-
-	const auto _ = utils::finally([&]
-	{
-		__writecr3(orignal_cr3.flags);
-	});
+	scoped_cr3_switch cr3_switch{};
 
 	constexpr auto PCID_NONE = 0x000;
 	constexpr auto PCID_MASK = 0x003;
 
-	const auto guest_cr3 = read_vmx(VMCS_GUEST_CR3);
-	if ((guest_cr3 & PCID_MASK) != PCID_NONE)
+	cr3 guest_cr3{};
+	guest_cr3.flags = read_vmx(VMCS_GUEST_CR3);
+
+	if ((guest_cr3.flags & PCID_MASK) != PCID_NONE)
 	{
-		const auto process_cr3 = get_current_process_cr3();
-		__writecr3(process_cr3.flags);
+		cr3_switch.set_cr3(get_current_process_cr3());
 	}
 
-	// TODO: Check for potential page fault
 	const auto* rip = reinterpret_cast<uint8_t*>(guest_context.guest_rip);
 
-	constexpr uint8_t syscall_bytes[] = { 0x0F, 0x05 };
+	constexpr uint8_t syscall_bytes[] = {0x0F, 0x05};
 	constexpr uint8_t sysret_bytes[] = {0x48, 0x0F, 0x07};
 
-	if (is_mem_equal(rip, syscall_bytes))
+	constexpr auto max_byte_length = max(sizeof(sysret_bytes), sizeof(syscall_bytes));
+
+	uint8_t data[max_byte_length];
+
+	if (!read_data_or_page_fault(data, rip))
+	{
+		return syscall_state::page_fault;
+	}
+
+	if (is_mem_equal(data, syscall_bytes))
 	{
 		return syscall_state::is_syscall;
 	}
 
-	if (is_mem_equal(rip, sysret_bytes))
+	if (is_mem_equal(data, sysret_bytes))
 	{
 		return syscall_state::is_sysret;
 	}
@@ -573,12 +664,17 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 
 	if (interrupt.vector == invalid_opcode)
 	{
+		guest_context.increment_rip = false;
+
 		const auto state = get_syscall_state(guest_context);
+
+		if (state == syscall_state::page_fault)
+		{
+			return;
+		}
 
 		if (state == syscall_state::is_syscall)
 		{
-			guest_context.increment_rip = false;
-
 			rflags rflags{};
 			rflags.flags = read_vmx(VMCS_GUEST_RFLAGS);
 
@@ -617,8 +713,6 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 		}
 		else if (state == syscall_state::is_sysret)
 		{
-			guest_context.increment_rip = false;
-
 			__vmx_vmwrite(VMCS_GUEST_RIP, guest_context.vp_regs->Rcx);
 
 			rflags rflags{};
@@ -659,7 +753,7 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 		}
 		else
 		{
-			inject_invalid_opcode(guest_context);
+			inject_invalid_opcode();
 		}
 	}
 	else

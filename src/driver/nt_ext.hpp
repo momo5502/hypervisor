@@ -56,6 +56,29 @@ MmAllocateContiguousNodeMemory(
 
 // ----------------------------------------
 
+typedef struct _MM_COPY_ADDRESS {
+	union {
+		PVOID VirtualAddress;
+		PHYSICAL_ADDRESS PhysicalAddress;
+	};
+} MM_COPY_ADDRESS, * PMMCOPY_ADDRESS;
+
+#define MM_COPY_MEMORY_PHYSICAL             0x1
+#define MM_COPY_MEMORY_VIRTUAL              0x2
+
+_IRQL_requires_max_(APC_LEVEL)
+NTKERNELAPI
+NTSTATUS
+MmCopyMemory(
+	_In_ PVOID TargetAddress,
+	_In_ MM_COPY_ADDRESS SourceAddress,
+	_In_ SIZE_T NumberOfBytes,
+	_In_ ULONG Flags,
+	_Out_ PSIZE_T NumberOfBytesTransferred
+);
+
+// ----------------------------------------
+
 NTSYSAPI
 VOID
 NTAPI

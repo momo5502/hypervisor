@@ -10,6 +10,9 @@ namespace memory
 	_IRQL_requires_max_(DISPATCH_LEVEL)
 	void* allocate_aligned_memory(size_t size);
 
+	_IRQL_requires_max_(APC_LEVEL)
+	bool read_physical_memory(void* destination, uint64_t physical_address, size_t size);
+
 	uint64_t get_physical_address(void* address);
 	void* get_virtual_address(uint64_t address);
 

@@ -3,6 +3,18 @@
 #define DECLSPEC_PAGE_ALIGN DECLSPEC_ALIGN(PAGE_SIZE)
 #include "list.hpp"
 
+
+#define MTRR_PAGE_SIZE 4096
+#define MTRR_PAGE_MASK (~(MTRR_PAGE_SIZE-1))
+
+#define ADDRMASK_EPT_PML1_OFFSET(_VAR_) ((_VAR_) & 0xFFFULL)
+
+#define ADDRMASK_EPT_PML1_INDEX(_VAR_) (((_VAR_) & 0x1FF000ULL) >> 12)
+#define ADDRMASK_EPT_PML2_INDEX(_VAR_) (((_VAR_) & 0x3FE00000ULL) >> 21)
+#define ADDRMASK_EPT_PML3_INDEX(_VAR_) (((_VAR_) & 0x7FC0000000ULL) >> 30)
+#define ADDRMASK_EPT_PML4_INDEX(_VAR_) (((_VAR_) & 0xFF8000000000ULL) >> 39)
+
+
 namespace vmx
 {
 	using pml4 = ept_pml4;
@@ -10,6 +22,11 @@ namespace vmx
 	using pml2 = epde_2mb;
 	using pml2_ptr = epde;
 	using pml1 = epte;
+
+	using pml4_entry = pml4e_64;
+	using pml3_entry = pdpte_64;
+	using pml2_entry = pde_64;
+	using pml1_entry = pte_64;
 
 	struct ept_split
 	{

@@ -68,6 +68,18 @@ namespace memory
 		return memory;
 	}
 
+	_IRQL_requires_max_(APC_LEVEL)
+
+	bool read_physical_memory(void* destination, uint64_t physical_address, const size_t size)
+	{
+		size_t bytes_read{};
+		MM_COPY_ADDRESS source{};
+		source.PhysicalAddress.QuadPart = static_cast<int64_t>(physical_address);
+
+		return MmCopyMemory(destination, source, size, MM_COPY_MEMORY_PHYSICAL, &bytes_read) == STATUS_SUCCESS &&
+			bytes_read == size;
+	}
+
 	uint64_t get_physical_address(void* address)
 	{
 		return static_cast<uint64_t>(MmGetPhysicalAddress(address).QuadPart);
