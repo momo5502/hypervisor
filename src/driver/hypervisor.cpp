@@ -12,6 +12,20 @@
 #define DPL_USER   3
 #define DPL_SYSTEM 0
 
+typedef struct _KPROCESS
+{
+	DISPATCHER_HEADER Header;
+	LIST_ENTRY ProfileListHead;
+	ULONG DirectoryTableBase;
+	// ...
+} KPROCESS, *PKPROCESS;
+
+typedef struct _EPROCESS
+{
+	KPROCESS Pcb;
+	// ...
+} EPROCESS, *PEPROCESS;
+
 namespace
 {
 	hypervisor* instance{nullptr};
@@ -46,8 +60,8 @@ namespace
 
 	void enable_syscall_hooking()
 	{
-		//int32_t cpu_info[4]{0};
-		//__cpuidex(cpu_info, 0x41414141, 0x42424243);
+		int32_t cpu_info[4]{0};
+		__cpuidex(cpu_info, 0x41414141, 0x42424243);
 	}
 
 	void cpature_special_registers(vmx::special_registers& special_registers)
@@ -460,11 +474,176 @@ void vmx_handle_invd()
 	__wbinvd();
 }
 
+void inject_interuption(const interruption_type type, const exception_vector vector, const bool deliver_code,
+                        const uint32_t error_code)
+{
+	vmentry_interrupt_information interrupt{};
+	interrupt.valid = true;
+	interrupt.interruption_type = type;
+	interrupt.vector = vector;
+	interrupt.deliver_error_code = deliver_code;
+
+	__vmx_vmwrite(VMCS_CTRL_VMENTRY_INTERRUPTION_INFORMATION_FIELD, interrupt.flags);
+
+	if (deliver_code)
+	{
+		__vmx_vmwrite(VMCS_CTRL_VMENTRY_INTERRUPTION_INFORMATION_FIELD, error_code);
+	}
+}
+
+void inject_invalid_opcode(vmx::guest_context& guest_context)
+{
+	inject_interuption(hardware_exception, invalid_opcode, false, 0);
+	guest_context.increment_rip = false;
+}
+
+cr3 get_current_process_cr3()
+{
+	cr3 guest_cr3{};
+	guest_cr3.flags = PsGetCurrentProcess()->Pcb.DirectoryTableBase;
+
+	return guest_cr3;
+}
+
+template <size_t Length>
+bool is_mem_equal(const uint8_t* ptr, const uint8_t (&array)[Length])
+{
+	for (size_t i = 0; i < Length; ++i)
+	{
+		if (ptr[i] != array[i])
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 void vmx_handle_exception(vmx::guest_context& guest_context)
 {
-	(void)guest_context;
-	read_vmx(VMCS_VMEXIT_INTERRUPTION_INFORMATION);
-	debug_log("MABEA SYSCALL :D\n");
+	vmexit_interrupt_information interrupt{};
+	interrupt.flags = static_cast<uint32_t>(read_vmx(VMCS_VMEXIT_INTERRUPTION_INFORMATION));
+
+	if (interrupt.interruption_type == non_maskable_interrupt
+		&& interrupt.vector == nmi)
+	{
+		// TODO ?
+		return;
+	}
+
+	if (interrupt.vector == invalid_opcode)
+	{
+		auto* rip = reinterpret_cast<uint8_t*>(guest_context.guest_rip);
+
+		cr3 orignal_cr3{};
+		orignal_cr3.flags = __readcr3();
+
+		const auto guest_cr3 = get_current_process_cr3();
+
+		__writecr3(guest_cr3.flags);
+
+		// TODO: Check for potential page fault
+
+		constexpr uint8_t sysret_bytes[] = {0x48, 0x05, 0x07};
+		constexpr uint8_t syscall_bytes[] = {0x0F, 0x05};
+
+		if (is_mem_equal(rip, syscall_bytes))
+		{
+			guest_context.increment_rip = false;
+
+			rflags rflags{};
+			 rflags.flags = read_vmx(VMCS_GUEST_RFLAGS);
+
+			const auto instruction_length = read_vmx(VMCS_VMEXIT_INSTRUCTION_LENGTH);
+
+			guest_context.vp_regs->Rcx = guest_context.guest_rip + instruction_length;
+			__vmx_vmwrite(VMCS_GUEST_RIP, __readmsr(IA32_LSTAR));
+
+			guest_context.vp_regs->R11 = rflags.flags;
+			rflags.flags &= ~(__readmsr(IA32_FMASK) | RFLAGS_RESUME_FLAG_FLAG);
+			__vmx_vmwrite(VMCS_GUEST_RFLAGS, rflags.flags);
+
+			const auto star_msr = __readmsr(IA32_STAR);
+
+			vmx::gdt_entry gdt_entry{};
+			gdt_entry.selector.flags = static_cast<uint16_t>((star_msr >> 32) & ~3);
+			gdt_entry.base = 0;
+			gdt_entry.limit = ~0U;
+			gdt_entry.access_rights.flags = 0xA09B;
+
+			__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, gdt_entry.selector.flags);
+			__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, gdt_entry.limit);
+			__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+			__vmx_vmwrite(VMCS_GUEST_CS_BASE, gdt_entry.base);
+
+			gdt_entry = {};
+			gdt_entry.selector.flags = static_cast<uint16_t>(((star_msr >> 32) & ~3) + 8);
+			gdt_entry.base = 0;
+			gdt_entry.limit = ~0U;
+			gdt_entry.access_rights.flags = 0xC093;
+
+			__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, gdt_entry.selector.flags);
+			__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, gdt_entry.limit);
+			__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+			__vmx_vmwrite(VMCS_GUEST_SS_BASE, gdt_entry.base);
+		}
+		else if (is_mem_equal(rip, sysret_bytes))
+		{
+			guest_context.increment_rip = false;
+
+			__vmx_vmwrite(VMCS_GUEST_RIP, guest_context.vp_regs->Rcx);
+
+			rflags rflags{};
+			rflags.flags = guest_context.vp_regs->R11;
+			rflags.resume_flag = 0;
+			rflags.virtual_8086_mode_flag = 0;
+			rflags.reserved1 = 0;
+			rflags.reserved2 = 0;
+			rflags.reserved3 = 0;
+			rflags.reserved4 = 0;
+			rflags.read_as_1 = 1;
+
+			__vmx_vmwrite(VMCS_GUEST_RFLAGS, rflags.flags);
+
+			const auto star_msr = __readmsr(IA32_STAR);
+
+			vmx::gdt_entry gdt_entry{};
+			gdt_entry.selector.flags = static_cast<uint16_t>(((star_msr >> 48) + 16) | 3);
+			gdt_entry.base = 0;
+			gdt_entry.limit = ~0U;
+			gdt_entry.access_rights.flags = 0xA0FB;
+
+			__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, gdt_entry.selector.flags);
+			__vmx_vmwrite(VMCS_GUEST_CS_LIMIT, gdt_entry.limit);
+			__vmx_vmwrite(VMCS_GUEST_CS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+			__vmx_vmwrite(VMCS_GUEST_CS_BASE, gdt_entry.base);
+
+			gdt_entry = {};
+			gdt_entry.selector.flags = static_cast<uint16_t>(((star_msr >> 48) + 8) | 3);
+			gdt_entry.base = 0;
+			gdt_entry.limit = ~0U;
+			gdt_entry.access_rights.flags = 0xC0F3;
+
+			__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, gdt_entry.selector.flags);
+			__vmx_vmwrite(VMCS_GUEST_SS_LIMIT, gdt_entry.limit);
+			__vmx_vmwrite(VMCS_GUEST_SS_ACCESS_RIGHTS, gdt_entry.access_rights.flags);
+			__vmx_vmwrite(VMCS_GUEST_SS_BASE, gdt_entry.base);
+		}
+		else
+		{
+			inject_invalid_opcode(guest_context);
+		}
+	}
+	else
+	{
+		__vmx_vmwrite(VMCS_CTRL_VMENTRY_INTERRUPTION_INFORMATION_FIELD, interrupt.flags);
+		if (interrupt.error_code_valid)
+		{
+			__vmx_vmwrite(VMCS_CTRL_VMENTRY_EXCEPTION_ERROR_CODE, read_vmx(VMCS_VMEXIT_INTERRUPTION_ERROR_CODE));
+		}
+	}
+
+	//debug_log("MABEA SYSCALL :D\n");
 }
 
 bool is_system()
