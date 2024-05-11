@@ -684,24 +684,26 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 
 		if (state == syscall_state::is_syscall)
 		{
-			rflags rflags{};
-			rflags.flags = read_vmx(VMCS_GUEST_RFLAGS);
-
 			const auto instruction_length = read_vmx(VMCS_VMEXIT_INSTRUCTION_LENGTH);
 
+			const auto star = __readmsr(IA32_STAR);
+			const auto lstar = __readmsr(IA32_LSTAR);
+			const auto fmask = __readmsr(IA32_FMASK);
+
 			guest_context.vp_regs->Rcx = guest_context.guest_rip + instruction_length;
-			__vmx_vmwrite(VMCS_GUEST_RIP, __readmsr(IA32_LSTAR));
+			guest_context.guest_rip = lstar;
+			__vmx_vmwrite(VMCS_GUEST_RIP, guest_context.guest_rip);
 
-			guest_context.vp_regs->R11 = rflags.flags;
-			rflags.flags &= ~(__readmsr(IA32_FMASK) | RFLAGS_RESUME_FLAG_FLAG);
-			__vmx_vmwrite(VMCS_GUEST_RFLAGS, rflags.flags);
 
-			const auto star_msr = __readmsr(IA32_STAR);
+			guest_context.vp_regs->R11 = guest_context.guest_e_flags;
+			guest_context.guest_e_flags &= ~(fmask | RFLAGS_RESUME_FLAG_FLAG);
+			__vmx_vmwrite(VMCS_GUEST_RFLAGS, guest_context.guest_e_flags);
+
 
 			vmx::gdt_entry gdt_entry{};
-			gdt_entry.selector.flags = static_cast<uint16_t>((star_msr >> 32) & ~3);
+			gdt_entry.selector.flags = static_cast<uint16_t>((star >> 32) & ~3);
 			gdt_entry.base = 0;
-			gdt_entry.limit = ~0U;
+			gdt_entry.limit = 0xFFFFF;
 			gdt_entry.access_rights.flags = 0xA09B;
 
 			__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, gdt_entry.selector.flags);
@@ -710,9 +712,9 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 			__vmx_vmwrite(VMCS_GUEST_CS_BASE, gdt_entry.base);
 
 			gdt_entry = {};
-			gdt_entry.selector.flags = static_cast<uint16_t>(((star_msr >> 32) & ~3) + 8);
+			gdt_entry.selector.flags = static_cast<uint16_t>(((star >> 32) & ~3) + 8);
 			gdt_entry.base = 0;
-			gdt_entry.limit = ~0U;
+			gdt_entry.limit = 0xFFFFF;
 			gdt_entry.access_rights.flags = 0xC093;
 
 			__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, gdt_entry.selector.flags);
@@ -722,26 +724,18 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 		}
 		else if (state == syscall_state::is_sysret)
 		{
-			__vmx_vmwrite(VMCS_GUEST_RIP, guest_context.vp_regs->Rcx);
+			const auto star = __readmsr(IA32_STAR);
 
-			rflags rflags{};
-			rflags.flags = guest_context.vp_regs->R11;
-			rflags.resume_flag = 0;
-			rflags.virtual_8086_mode_flag = 0;
-			rflags.reserved1 = 0;
-			rflags.reserved2 = 0;
-			rflags.reserved3 = 0;
-			rflags.reserved4 = 0;
-			rflags.read_as_1 = 1;
+			guest_context.vp_regs->Rip = guest_context.vp_regs->Rcx;
+			__vmx_vmwrite(VMCS_GUEST_RIP, guest_context.vp_regs->Rip);
 
-			__vmx_vmwrite(VMCS_GUEST_RFLAGS, rflags.flags);
-
-			const auto star_msr = __readmsr(IA32_STAR);
+			guest_context.guest_e_flags = (guest_context.vp_regs->R11 & 0x3C7FD7) | 2;
+			__vmx_vmwrite(VMCS_GUEST_RFLAGS, guest_context.guest_e_flags);
 
 			vmx::gdt_entry gdt_entry{};
-			gdt_entry.selector.flags = static_cast<uint16_t>(((star_msr >> 48) + 16) | 3);
+			gdt_entry.selector.flags = static_cast<uint16_t>(((star >> 48) + 16) | 3);
 			gdt_entry.base = 0;
-			gdt_entry.limit = ~0U;
+			gdt_entry.limit = 0xFFFFF;
 			gdt_entry.access_rights.flags = 0xA0FB;
 
 			__vmx_vmwrite(VMCS_GUEST_CS_SELECTOR, gdt_entry.selector.flags);
@@ -750,9 +744,9 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 			__vmx_vmwrite(VMCS_GUEST_CS_BASE, gdt_entry.base);
 
 			gdt_entry = {};
-			gdt_entry.selector.flags = static_cast<uint16_t>(((star_msr >> 48) + 8) | 3);
+			gdt_entry.selector.flags = static_cast<uint16_t>(((star >> 48) + 8) | 3);
 			gdt_entry.base = 0;
-			gdt_entry.limit = ~0U;
+			gdt_entry.limit = 0xFFFFF;
 			gdt_entry.access_rights.flags = 0xC0F3;
 
 			__vmx_vmwrite(VMCS_GUEST_SS_SELECTOR, gdt_entry.selector.flags);
