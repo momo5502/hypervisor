@@ -528,6 +528,58 @@ bool is_mem_equal(const uint8_t* ptr, const uint8_t (&array)[Length])
 	return true;
 }
 
+void set_exception_bit(const exception_vector bit, const bool value)
+{
+	auto exception_bitmap = read_vmx(VMCS_CTRL_EXCEPTION_BITMAP);
+
+	if (value)
+	{
+		exception_bitmap |= 1ULL << bit;
+	}
+	else
+	{
+		exception_bitmap &= ~(1ULL << bit);
+	}
+
+	__vmx_vmwrite(VMCS_CTRL_EXCEPTION_BITMAP, exception_bitmap);
+}
+
+void vmx_enable_syscall_hooks(const bool enable)
+{
+	ULARGE_INTEGER msr{};
+	ia32_efer_register efer_register{};
+	ia32_vmx_basic_register vmx_basic_register{};
+	ia32_vmx_exit_ctls_register exit_ctls_register{};
+	ia32_vmx_entry_ctls_register entry_ctls_register{};
+
+	vmx_basic_register.flags = __readmsr(IA32_VMX_BASIC);
+	exit_ctls_register.flags = read_vmx(VMCS_CTRL_VMEXIT_CONTROLS);
+	entry_ctls_register.flags = read_vmx(VMCS_CTRL_VMENTRY_CONTROLS);
+
+	efer_register.flags = __readmsr(IA32_EFER);
+
+	// ---------------------------------------
+
+	efer_register.syscall_enable = !enable;
+	exit_ctls_register.save_ia32_efer = enable;
+	entry_ctls_register.load_ia32_efer = enable;
+
+	// ---------------------------------------
+
+	if (enable)
+	{
+		msr.QuadPart = __readmsr(vmx_basic_register.vmx_controls ? IA32_VMX_TRUE_ENTRY_CTLS : IA32_VMX_ENTRY_CTLS);
+		__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS, adjust_msr(msr, entry_ctls_register.flags));
+
+		msr.QuadPart = __readmsr(vmx_basic_register.vmx_controls ? IA32_VMX_TRUE_EXIT_CTLS : IA32_VMX_EXIT_CTLS);
+		__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS, adjust_msr(msr, exit_ctls_register.flags));
+	}
+
+	__vmx_vmwrite(VMCS_GUEST_EFER, efer_register.flags);
+
+	set_exception_bit(invalid_opcode, enable);
+}
+
 enum class syscall_state
 {
 	is_sysret,
@@ -677,9 +729,9 @@ void vmx_handle_exception(vmx::guest_context& guest_context)
 		const auto proc = process::get_current_process();
 
 		const auto filename = proc.get_image_filename();
-		if (string::equal(filename, "explorer"))
+		if (string::equal(filename, "explorer.exe"))
 		{
-			debug_log("Explorer SYSCALL: %d\n", guest_context.vp_regs->Rcx);
+			debug_log("Explorer SYSCALL: %d\n", static_cast<uint32_t>(guest_context.vp_regs->Rax));
 		}
 
 		if (state == syscall_state::is_syscall)
@@ -774,53 +826,13 @@ bool is_system()
 	return (read_vmx(VMCS_GUEST_CS_SELECTOR) & SEGMENT_ACCESS_RIGHTS_DESCRIPTOR_PRIVILEGE_LEVEL_MASK) == DPL_SYSTEM;
 }
 
-void set_exception_bit(const exception_vector bit)
-{
-	auto exception_bitmap = read_vmx(VMCS_CTRL_EXCEPTION_BITMAP);
-	exception_bitmap |= 1ULL << bit;
-	__vmx_vmwrite(VMCS_CTRL_EXCEPTION_BITMAP, exception_bitmap);
-}
-
-void vmx_enable_syscall_hooks()
-{
-	ULARGE_INTEGER msr{};
-	ia32_efer_register efer_register{};
-	ia32_vmx_basic_register vmx_basic_register{};
-	ia32_vmx_exit_ctls_register exit_ctls_register{};
-	ia32_vmx_entry_ctls_register entry_ctls_register{};
-
-	vmx_basic_register.flags = __readmsr(IA32_VMX_BASIC);
-	exit_ctls_register.flags = read_vmx(VMCS_CTRL_VMEXIT_CONTROLS);
-	entry_ctls_register.flags = read_vmx(VMCS_CTRL_VMENTRY_CONTROLS);
-
-	efer_register.flags = __readmsr(IA32_EFER);
-
-	// ---------------------------------------
-
-	efer_register.syscall_enable = false;
-	exit_ctls_register.save_ia32_efer = true;
-	entry_ctls_register.load_ia32_efer = true;
-
-	// ---------------------------------------
-
-	msr.QuadPart = __readmsr(vmx_basic_register.vmx_controls ? IA32_VMX_TRUE_ENTRY_CTLS : IA32_VMX_ENTRY_CTLS);
-	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS, adjust_msr(msr, entry_ctls_register.flags));
-
-	msr.QuadPart = __readmsr(vmx_basic_register.vmx_controls ? IA32_VMX_TRUE_EXIT_CTLS : IA32_VMX_EXIT_CTLS);
-	__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS, adjust_msr(msr, exit_ctls_register.flags));
-
-	__vmx_vmwrite(VMCS_GUEST_EFER, efer_register.flags);
-
-	set_exception_bit(invalid_opcode);
-}
-
 void vmx_handle_cpuid(vmx::guest_context& guest_context)
 {
 	if (guest_context.vp_regs->Rax == 0x41414141 &&
 		guest_context.vp_regs->Rcx == 0x42424243 &&
 		is_system())
 	{
-		vmx_enable_syscall_hooks();
+		vmx_enable_syscall_hooks(true);
 		return;
 	}
 
