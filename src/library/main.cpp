@@ -45,6 +45,22 @@ namespace
 		static driver hypervisor{};
 		static driver_device device{};
 
+		if (!device)
+		{
+			try
+			{
+				device = create_driver_device();
+			}
+			catch (...)
+			{
+			}
+		}
+
+		if (device)
+		{
+			return device;
+		}
+
 		if (!hypervisor)
 		{
 			hypervisor = create_driver();
