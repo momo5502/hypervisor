@@ -42,9 +42,6 @@ jobs:
         with:
           arch: x64
 
-      - name: Setup Ninja
-        uses: ashutoshvarma/setup-ninja@master
-
       - name: Configure CMake
         run: cmake --preset=${{matrix.configuration}}
 
