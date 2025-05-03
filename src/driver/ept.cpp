@@ -291,7 +291,7 @@ namespace vmx
 
 		// --------------------------
 
-		epdpte temp_epdpte{};
+		pml1 temp_epdpte{};
 		temp_epdpte.flags = 0;
 		temp_epdpte.read_access = 1;
 		temp_epdpte.write_access = 1;
@@ -306,7 +306,7 @@ namespace vmx
 
 		// --------------------------
 
-		epde_2mb temp_epde{};
+		pml2 temp_epde{};
 		temp_epde.flags = 0;
 		temp_epde.read_access = 1;
 		temp_epde.write_access = 1;
@@ -400,18 +400,18 @@ namespace vmx
 		}
 
 		const auto* pml2 = reinterpret_cast<pml2_ptr*>(pml2_entry);
-		auto* pml1 = this->find_pml1_table(pml2->page_frame_number * PAGE_SIZE);
-		if (!pml1)
+		auto* pml1_table = this->find_pml1_table(pml2->page_frame_number * PAGE_SIZE);
+		if (!pml1_table)
 		{
-			pml1 = static_cast<epte*>(memory::get_virtual_address(pml2->page_frame_number * PAGE_SIZE));
+			pml1_table = static_cast<pml1*>(memory::get_virtual_address(pml2->page_frame_number * PAGE_SIZE));
 		}
 
-		if (!pml1)
+		if (!pml1_table)
 		{
 			return nullptr;
 		}
 
-		return &pml1[ADDRMASK_EPT_PML1_INDEX(physical_address)];
+		return &pml1_table[ADDRMASK_EPT_PML1_INDEX(physical_address)];
 	}
 
 	pml1* ept::find_pml1_table(const uint64_t physical_address)
@@ -551,7 +551,7 @@ namespace vmx
 
 		auto& split = this->allocate_ept_split();
 
-		epte pml1_template{};
+		pml1 pml1_template{};
 		pml1_template.flags = 0;
 		pml1_template.read_access = 1;
 		pml1_template.write_access = 1;

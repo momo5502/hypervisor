@@ -553,7 +553,7 @@ void vmx_enable_syscall_hooks(const bool enable)
 	ia32_vmx_entry_ctls_register entry_ctls_register{};
 
 	vmx_basic_register.flags = __readmsr(IA32_VMX_BASIC);
-	exit_ctls_register.flags = read_vmx(VMCS_CTRL_VMEXIT_CONTROLS);
+	exit_ctls_register.flags = read_vmx(VMCS_CTRL_PRIMARY_VMEXIT_CONTROLS);
 	entry_ctls_register.flags = read_vmx(VMCS_CTRL_VMENTRY_CONTROLS);
 
 	efer_register.flags = __readmsr(IA32_EFER);
@@ -572,7 +572,7 @@ void vmx_enable_syscall_hooks(const bool enable)
 		__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS, adjust_msr(msr, entry_ctls_register.flags));
 
 		msr.QuadPart = __readmsr(vmx_basic_register.vmx_controls ? IA32_VMX_TRUE_EXIT_CTLS : IA32_VMX_EXIT_CTLS);
-		__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS, adjust_msr(msr, exit_ctls_register.flags));
+		__vmx_vmwrite(VMCS_CTRL_PRIMARY_VMEXIT_CONTROLS, adjust_msr(msr, exit_ctls_register.flags));
 	}
 
 	__vmx_vmwrite(VMCS_GUEST_EFER, efer_register.flags);
@@ -996,7 +996,7 @@ void setup_vmcs_for_cpu(vmx::state& vm_state)
 
 	ia32_vmx_exit_ctls_register exit_ctls_register{};
 	exit_ctls_register.host_address_space_size = 1;
-	__vmx_vmwrite(VMCS_CTRL_VMEXIT_CONTROLS,
+	__vmx_vmwrite(VMCS_CTRL_PRIMARY_VMEXIT_CONTROLS,
 	              adjust_msr(launch_context->msr_data[15],
 	                         exit_ctls_register.flags));
 

@@ -17,11 +17,11 @@
 
 namespace vmx
 {
-	using pml4 = ept_pml4;
-	using pml3 = epdpte;
-	using pml2 = epde_2mb;
-	using pml2_ptr = epde;
-	using pml1 = epte;
+	using pml4 = ept_pml4e;
+	using pml3 = ept_pdpte;
+	using pml2 = ept_pde_2mb;
+	using pml2_ptr = ept_pde;
+	using pml1 = ept_pte;
 
 	using pml4_entry = pml4e_64;
 	using pml3_entry = pdpte_64;
