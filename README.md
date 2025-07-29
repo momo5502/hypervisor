@@ -1,11 +1,15 @@
+# 🧪 Hypervisor with EPT Hooking Support
 ![license](https://img.shields.io/github/license/momo5502/hypervisor.svg)
 [![build](https://github.com/momo5502/hypervisor/workflows/Build/badge.svg)](https://github.com/momo5502/hypervisor/actions)
 [![paypal](https://img.shields.io/badge/PayPal-support-blue.svg?logo=paypal)](https://paypal.me/momo5502)
 
-# Hypervisor
+A lightweight experimental hypervisor that leverages Intel's VT-x virtualization technology to create stealthy memory hooks using EPT (Extended Page Tables). By manipulating second-level address translation, it enables invisible code execution interception that bypasses traditional memory integrity checks.
 
-Experimental VT-X type 2 hypervisor with EPT hooking/analysis support.
-Basically just a tool I use for reverse engineering and stuff. Nothing too serious.
+## Safety Warnings
+
+- **System Instability**: Improper hypervisor implementation can cause BSODs
+- **Data Loss Risk**: Always backup important data before testing
+- **Ethical Usage**: Only use for legitimate research and educational purposes
 
 ## Credits
 
